@@ -1,6 +1,6 @@
 # PhonoScore German
 
-Self-hosted **German pronunciation assessment**. Record a sentence and get a pronunciation score, the phoneme error rate, and each mispronounced word with expected vs. heard IPA. Includes a web app, a CLI and an HTTP API.
+Self-hosted **German pronunciation assessment**, with optional cloud services. Record a sentence and get a pronunciation score, the phoneme error rate, and each mispronounced word with expected vs. heard IPA. Includes a web app, a CLI and an HTTP API.
 
 [![Python](https://img.shields.io/badge/Python-3.10%2B-blue.svg)](https://www.python.org/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
@@ -11,9 +11,9 @@ Self-hosted **German pronunciation assessment**. Record a sentence and get a pro
 
 - **Pronunciation score** (0–100) and **phoneme error rate** for any German sentence
 - **Mispronunciation detection** per word: expected IPA, the IPA actually heard, and a confidence
-- **Speech-to-text** with Qwen3-ASR (OpenAI-compatible endpoint), to show what the speaker said
+- **Speech-to-text** to show what the speaker said: Qwen3-ASR locally, or any OpenAI-compatible cloud API
 - **Reference audio** (optional): hear the sentence or a single word, at normal or slow speed, via [Chatterbox TTS Server](https://github.com/devnen/Chatterbox-TTS-Server)
-- Runs locally on NVIDIA GPU, Apple Silicon or CPU
+- Runs fully locally on NVIDIA GPU, Apple Silicon or CPU; cloud services are opt-in
 
 ## Quickstart
 
@@ -38,12 +38,12 @@ Self-hosted **German pronunciation assessment**. Record a sentence and get a pro
 
 3. When the log says `Ready`, open **http://localhost:8002**.
 
-**First run:** the first request to each service downloads its models from Hugging Face automatically, so expect a few minutes of waiting:
+**First run:** the first request to each service downloads the models it uses from Hugging Face, so expect a wait:
 
-- The ASR service downloads **Qwen3-ASR-1.7B**.
-- The scoring service (OpenPronounce) downloads **three Wav2Vec2 models**.
+- The ASR service downloads the chosen ASR model (default **Qwen3-ASR-1.7B**), unless you use a cloud endpoint.
+- The scoring service downloads OpenPronounce's **Wav2Vec2 models** and the **Piper German voice**.
 
-Later starts load them from the local cache. See [Models](#models) for estimated sizes and the lighter alternative (updated 29 Sep 2026). In my testing, Qwen3-ASR-1.7B gives clearly better German transcriptions than 0.6B, but needs significantly more VRAM.
+Later starts load them from the local cache. See [Models](#models) for the options.
 
 ## Usage
 
@@ -117,6 +117,8 @@ curl -F file=@recording.wav -F language=de http://localhost:8001/v1/audio/transc
 | Flag | Default | |
 |---|---|---|
 | `--model` | `Qwen3-ASR-1.7B` | ASR model, see [Models](#models) |
+| `--asr-endpoint` | | Cloud ASR API instead of a local model, see [Cloud services](#cloud-services) |
+| `--tts` | `piper` | Reference voice for scoring: `piper` (local) or `gtts` (Google) |
 | `--device` | `auto` | `auto`, `cuda`, `mps` or `cpu` |
 | `--host` | `0.0.0.0` | Bind address |
 | `--asr-port` / `--pronounce-port` | `8001` / `8002` | Service ports |
@@ -125,7 +127,7 @@ curl -F file=@recording.wav -F language=de http://localhost:8001/v1/audio/transc
 | `-f`, `--logs` | | Follow the log (`logs/serve.log`; per service in `logs/asr.log`, `logs/pronounce.log`) |
 | `--python` / `--no-auto-setup` | | Use a specific interpreter / don't create `.venv` |
 
-You can also run the services separately: `python asr_server.py --port 8001` and `python pronounce_server.py --port 8002`. Both take `--host` and `--device`.
+You can also run the services separately: `python asr_server.py --port 8001` and `python pronounce_server.py --port 8002`. Both take `--host` and `--device`; `asr_server.py` also takes `--model` and `--endpoint`, `pronounce_server.py` takes `--tts`.
 
 ### llama-swap
 
@@ -140,30 +142,59 @@ In the web app, choose **llama-swap** under Settings. See the [llama-swap README
 
 ## Models
 
-All models download from Hugging Face on first use and are stored in the Hugging Face cache (`~/.cache/huggingface`, or wherever `HF_HOME` points). Sizes are estimates as of 29 Sep 2026.
+Models download from Hugging Face on first use into the Hugging Face cache (`~/.cache/huggingface`, or wherever `HF_HOME` points). For offline use, run once to fill the cache, then set `HF_HUB_OFFLINE=1`.
 
-**ASR** (choose with `--model` or `PHONOSCORE_ASR_MODEL`):
+### ASR
 
-| `--model` | Hugging Face repo | Download (est.) | |
-|---|---|---|---|
-| `Qwen3-ASR-1.7B` (default) | `Qwen/Qwen3-ASR-1.7B-hf` | ~4 GB | Best results in my testing; significantly more VRAM |
-| `Qwen3-ASR-0.6B` | `Qwen/Qwen3-ASR-0.6B-hf` | ~2 GB | For smaller GPUs or CPU |
-| any other value | a repo ID or local path | | Must be a Qwen3-ASR `-hf` checkpoint |
+These are the built-in models (recommendations as of 29 Sep 2026). Choose one with `--model` or `PHONOSCORE_ASR_MODEL`.
 
-**Scoring** (OpenPronounce, fixed):
-
-| Hugging Face repo | Download (est.) | Used for |
+| `--model` | Hugging Face repo | Comment |
 |---|---|---|
-| `facebook/wav2vec2-lv-60-espeak-cv-ft` | ~1.2 GB | Recognizing the phones actually spoken |
-| `jonatasgrosman/wav2vec2-large-xlsr-53-german` | ~1.2 GB | German word transcription |
-| `facebook/wav2vec2-large-960h` | ~1.2 GB | Acoustic comparison with a reference recording |
+| `Qwen3-ASR-1.7B` (default) | `Qwen/Qwen3-ASR-1.7B-hf` | Default, based on testing |
+| `Qwen3-ASR-0.6B` | `Qwen/Qwen3-ASR-0.6B-hf` | Smaller and faster than 1.7B, but lower quality |
+| any other value | a repo ID or local path | Any other Qwen3-ASR checkpoint, such as a fine-tune. For other models (Whisper and others), use `--asr-endpoint`. |
 
-OpenPronounce creates that reference recording with Google Translate TTS by default, which sends the expected sentence to Google. To keep everything local, install `openpronounce[tts-piper]` and set `OPENPRONOUNCE_TTS=piper`; this downloads a ~60 MB German voice. For fully offline use, also pass a local path to `--model` and set `HF_HUB_OFFLINE=1` once the models are cached.
+### Scoring
+
+OpenPronounce uses three Wav2Vec2 models:
+
+| Hugging Face repo | Used for |
+|---|---|
+| `facebook/wav2vec2-lv-60-espeak-cv-ft` | Recognizing the phones actually spoken |
+| `jonatasgrosman/wav2vec2-large-xlsr-53-german` | German word transcription |
+| `facebook/wav2vec2-large-960h` | Acoustic comparison with a reference recording |
+
+It synthesizes that reference recording from the expected sentence. Choose the voice with `--tts`:
+
+| `--tts` | Runs | Comment |
+|---|---|---|
+| `piper` (default) | Locally | Piper voice `de_DE-thorsten-medium`, downloaded on first use |
+| `gtts` | Cloud | Google Translate TTS. Sends each sentence to Google; no download. |
+
+## Cloud services
+
+PhonoScore runs locally by default. Each part can use a cloud service instead:
+
+| Part | Option | |
+|---|---|---|
+| Speech-to-text | `--asr-endpoint <url>` | Any OpenAI-compatible transcription API. No local ASR model is downloaded. |
+| Reference voice | `--tts gtts` | Google Translate TTS |
+| Listen buttons in the web app | Settings → TTS endpoint | Any [Chatterbox TTS Server](https://github.com/devnen/Chatterbox-TTS-Server), local or remote |
+
+For `--asr-endpoint`, pass the API's base URL and set `--model` to the provider's model name. The API key goes in `PHONOSCORE_ASR_API_KEY` and stays on the server. For example:
+
+```bash
+export PHONOSCORE_ASR_API_KEY=sk-...
+python3 serve.py --asr-endpoint https://api.openai.com/v1 --model whisper-1
+python3 serve.py --asr-endpoint https://api.groq.com/openai/v1 --model whisper-large-v3
+```
+
+A self-hosted server with the same API works too, such as a faster-whisper server on another machine.
 
 ## How it works
 
 - **Scoring:** [OpenPronounce](https://github.com/Halleck45/OpenPronounce) turns the expected sentence into German IPA with espeak-ng and recognizes the phones actually spoken with Wav2Vec2. It aligns the two and flags substitutions, deletions and insertions.
-- **Transcription:** [Qwen3-ASR](https://github.com/QwenLM/Qwen3-ASR) transcribes the same recording, so you see what was said.
+- **Transcription:** [Qwen3-ASR](https://github.com/QwenLM/Qwen3-ASR), or the cloud endpoint you configured, transcribes the same recording, so you see what was said.
 - The two services are independent. The client calls both.
 
 ## Language support
@@ -185,4 +216,4 @@ The tests run offline with mocks. No GPU or model download is needed.
 
 ## License
 
-[MIT](LICENSE). For third-party software and models, see [THIRD_PARTY_LICENSES.md](THIRD_PARTY_LICENSES.md).
+[MIT](LICENSE). One dependency, `piper-tts` (the local reference voice), is GPL-3.0. For all third-party software and models, see [THIRD_PARTY_LICENSES.md](THIRD_PARTY_LICENSES.md).

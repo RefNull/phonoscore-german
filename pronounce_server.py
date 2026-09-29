@@ -1,4 +1,8 @@
-"""Pronunciation scoring service (OpenPronounce): POST /assess, and the web UI at GET /."""
+"""Pronunciation scoring service (OpenPronounce): POST /assess, and the web UI at GET /.
+
+OpenPronounce compares the recording with a synthesized reference. --tts picks the voice:
+piper (default, local) or gtts (Google Translate TTS, sends the sentence to Google).
+"""
 
 import argparse
 import asyncio
@@ -28,6 +32,8 @@ def resolve_device(device_name: str = "auto") -> str:
 
 
 device = resolve_device()
+TTS = os.environ.get("OPENPRONOUNCE_TTS", "piper")
+os.environ["OPENPRONOUNCE_TTS"] = TTS  # OpenPronounce reads this on each /assess
 CLIENT_HTML = Path(__file__).resolve().parent / "client.html"
 
 app = FastAPI(title="PhonoScore", description="German pronunciation scoring (OpenPronounce)", version="1.0.0")
@@ -48,7 +54,7 @@ async def web_ui():
 
 @app.get("/health")
 async def health():
-    return {"status": "ok", "service": "openpronounce", "device": device}
+    return {"status": "ok", "service": "openpronounce", "device": device, "tts": TTS}
 
 
 @app.post("/assess")
@@ -113,6 +119,12 @@ def parse_args(args: Optional[list[str]] = None) -> argparse.Namespace:
     parser.add_argument("--host", default="0.0.0.0", help="bind address (default: 0.0.0.0)")
     parser.add_argument("--port", type=int, default=8002, help="port (default: 8002)")
     parser.add_argument("--device", default="auto", help="auto, cuda, mps or cpu (default: auto)")
+    parser.add_argument(
+        "--tts",
+        choices=["piper", "gtts"],
+        default=os.environ.get("OPENPRONOUNCE_TTS", "piper"),
+        help="reference voice: piper (local) or gtts (Google, cloud) (default: piper)",
+    )
     return parser.parse_args(args)
 
 
@@ -121,4 +133,5 @@ if __name__ == "__main__":
 
     cli_args = parse_args()
     device = resolve_device(cli_args.device)
+    TTS = os.environ["OPENPRONOUNCE_TTS"] = cli_args.tts
     uvicorn.run(app, host=cli_args.host, port=cli_args.port)

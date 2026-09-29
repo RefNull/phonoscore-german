@@ -344,3 +344,11 @@ def test_cors_headers(client):
     assert response.headers.get("access-control-allow-credentials") == "true"
 
 
+
+
+def test_tts_defaults_to_piper(client, monkeypatch):
+    """The reference voice is local Piper unless --tts gtts is chosen."""
+    monkeypatch.delenv("OPENPRONOUNCE_TTS", raising=False)
+    assert parse_args([]).tts == "piper"
+    assert parse_args(["--tts", "gtts"]).tts == "gtts"
+    assert client.get("/health").json()["tts"] in ("piper", "gtts")

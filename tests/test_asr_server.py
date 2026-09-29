@@ -63,7 +63,7 @@ def test_health_endpoint(client):
     assert response.status_code == 200
     data = response.json()
     assert data["status"] == "ok"
-    assert data["service"] == "qwen3-asr"
+    assert data["service"] == "asr"
     assert "device" in data
     assert isinstance(data["device"], str)
     assert data["device"] in ("cuda", "mps", "cpu")
@@ -232,3 +232,41 @@ def test_cors_headers(client):
     assert response.headers.get("access-control-allow-credentials") == "true"
 
 
+
+
+def test_parse_args_endpoint_keeps_model_name():
+    """With --endpoint, --model is the remote model name, not a local preset."""
+    args = parse_args(["--endpoint", "https://api.example.com/v1/", "--model", "whisper-1"])
+    assert args.endpoint == "https://api.example.com/v1"
+    assert args.model_id == "whisper-1"
+
+
+def test_transcribe_remote(monkeypatch):
+    """The remote transcriber forwards audio, model, language and API key."""
+    monkeypatch.setattr("asr_server.ENDPOINT", "https://api.example.com/v1")
+    monkeypatch.setattr("asr_server.MODEL_ID", "whisper-1")
+    monkeypatch.setenv("PHONOSCORE_ASR_API_KEY", "sk-test")
+    response = MagicMock(ok=True)
+    response.json.return_value = {"text": "Guten Tag"}
+    post = MagicMock(return_value=response)
+    monkeypatch.setattr("asr_server.requests.post", post)
+
+    import asr_server
+    assert asr_server.get_transcriber() is asr_server.transcribe_remote
+    assert asr_server.transcribe_remote(b"wav", "de", filename="a.wav") == "Guten Tag"
+
+    url = post.call_args.args[0]
+    kwargs = post.call_args.kwargs
+    assert url == "https://api.example.com/v1/audio/transcriptions"
+    assert kwargs["headers"] == {"Authorization": "Bearer sk-test"}
+    assert kwargs["data"] == {"model": "whisper-1", "language": "de"}
+    assert kwargs["files"]["file"] == ("a.wav", b"wav")
+
+
+def test_transcribe_remote_error(monkeypatch):
+    """A failing remote API surfaces its status and body."""
+    monkeypatch.setattr("asr_server.ENDPOINT", "https://api.example.com/v1")
+    monkeypatch.setattr("asr_server.requests.post", MagicMock(return_value=MagicMock(ok=False, status_code=401, text="bad key")))
+    import asr_server
+    with pytest.raises(RuntimeError, match="401: bad key"):
+        asr_server.transcribe_remote(b"wav", None)

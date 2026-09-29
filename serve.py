@@ -98,7 +98,19 @@ def parse_args(args: Optional[list[str]] = None) -> argparse.Namespace:
     parser.add_argument(
         "--model",
         default=default_model,
-        help=f"Qwen3-ASR-1.7B, Qwen3-ASR-0.6B, a Hugging Face repo or a local path (default: {default_model})",
+        help=f"Qwen3-ASR-1.7B, Qwen3-ASR-0.6B, a Hugging Face repo or a local path; with --asr-endpoint, "
+        f"the remote model name (default: {default_model})",
+    )
+    parser.add_argument(
+        "--asr-endpoint",
+        default=os.environ.get("PHONOSCORE_ASR_ENDPOINT", ""),
+        help="OpenAI-compatible API base URL to transcribe with instead of a local model; key in PHONOSCORE_ASR_API_KEY",
+    )
+    parser.add_argument(
+        "--tts",
+        choices=["piper", "gtts"],
+        default=os.environ.get("OPENPRONOUNCE_TTS", "piper"),
+        help="reference voice for scoring: piper (local) or gtts (Google, cloud) (default: piper)",
     )
     parser.add_argument("--device", default="auto", help="auto, cuda, mps or cpu (default: auto)")
     parser.add_argument("--python", default=None, help="interpreter for the services (default: .venv, created if missing)")
@@ -119,7 +131,11 @@ def build_commands(args: argparse.Namespace, python_exe: Optional[str] = None) -
     """Return the (asr, pronounce) command lines."""
     exe = python_exe or sys.executable
     asr_cmd = [exe, "-u", "asr_server.py", "--host", args.host, "--port", str(args.asr_port), "--device", args.device, "--model", args.model]
-    pronounce_cmd = [exe, "-u", "pronounce_server.py", "--host", args.host, "--port", str(args.pronounce_port), "--device", args.device]
+    if args.asr_endpoint:
+        asr_cmd += ["--endpoint", args.asr_endpoint]
+    pronounce_cmd = [
+        exe, "-u", "pronounce_server.py", "--host", args.host, "--port", str(args.pronounce_port), "--device", args.device, "--tts", args.tts,
+    ]
     return asr_cmd, pronounce_cmd
 
 
@@ -232,6 +248,8 @@ def spawn_detached(args: argparse.Namespace) -> int:
         "--pronounce-port", str(args.pronounce_port),
         "--model", args.model,
         "--device", args.device,
+        "--asr-endpoint", args.asr_endpoint,
+        "--tts", args.tts,
         "--log-dir", str(args.log_dir),
         "--pid-file", str(args.pid_file),
     ]
@@ -271,8 +289,8 @@ def run_combined(args: argparse.Namespace, poll_interval: float = 0.5) -> int:
 
     args.log_dir.mkdir(parents=True, exist_ok=True)
     logger.info("Starting PhonoScore (python: %s)", python_exe)
-    logger.info("  ASR:        port %d (model: %s, device: %s)", args.asr_port, args.model, args.device)
-    logger.info("  Pronounce:  port %d (device: %s)", args.pronounce_port, args.device)
+    logger.info("  ASR:        port %d (model: %s, %s)", args.asr_port, args.model, args.asr_endpoint or f"device: {args.device}")
+    logger.info("  Pronounce:  port %d (device: %s, reference voice: %s)", args.pronounce_port, args.device, args.tts)
     logger.info("  Logs:       %s", args.log_dir)
 
     # In --detach mode stdout already is serve.log, so only write it explicitly in the foreground

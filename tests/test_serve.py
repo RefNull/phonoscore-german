@@ -108,7 +108,14 @@ def test_build_commands():
         "8020",
         "--device",
         "cpu",
+        "--tts",
+        "piper",
     ]
+
+    args = parse_args(["--asr-endpoint", "https://api.example.com/v1", "--model", "whisper-1", "--tts", "gtts"])
+    asr_cmd, pronounce_cmd = build_commands(args, python_exe="/opt/python")
+    assert asr_cmd[-4:] == ["--model", "whisper-1", "--endpoint", "https://api.example.com/v1"]
+    assert pronounce_cmd[-2:] == ["--tts", "gtts"]
 
 
 def test_terminate_process_already_exited():

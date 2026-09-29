@@ -18,6 +18,12 @@ PhonoScore German is licensed under the [MIT License](LICENSE). It depends on th
 | **requests** | Apache-2.0 | Copyright 2019 Kenneth Reitz |
 | **python-multipart** | Apache-2.0 | Copyright 2014 Andrew Dunai, Marcelo Trylesinski |
 | **numpy** | BSD-3-Clause | Copyright (c) 2005-2024, NumPy Developers |
+| **piper-tts** | **GPL-3.0-or-later** | [OHF-Voice/piper1-gpl](https://github.com/OHF-voice/piper1-gpl) (via `openpronounce[tts-piper]`) |
+| **onnxruntime** | MIT | Copyright (c) Microsoft Corporation (via piper-tts) |
+| **huggingface_hub** | Apache-2.0 | Copyright The Hugging Face team |
+| **gTTS** | MIT | Copyright (c) Pierre Nicolas Durette (via openpronounce; used only with `--tts gtts`) |
+
+**GPL notice:** `requirements.txt` installs `piper-tts`, which is licensed under GPL-3.0-or-later. PhonoScore's own source code remains MIT. If you redistribute PhonoScore together with its installed dependencies (for example as a Docker image), that bundle must comply with the GPL.
 
 ---
 
@@ -40,8 +46,15 @@ PhonoScore German is licensed under the [MIT License](LICENSE). It depends on th
 - **License:** [Apache License 2.0](https://huggingface.co/facebook/wav2vec2-lv-60-espeak-cv-ft)
 - **Copyright:** Copyright (c) Meta Platforms, Inc. and affiliates.
 
-### Mozilla Common Voice German Checkpoints
-- **Dataset / Model License:** Derived from Common Voice under [Creative Commons CC0 1.0 Universal (Public Domain Dedication)](https://commonvoice.mozilla.org/).
+### `jonatasgrosman/wav2vec2-large-xlsr-53-german`
+- **License:** [Apache License 2.0](https://huggingface.co/jonatasgrosman/wav2vec2-large-xlsr-53-german), fine-tuned on Mozilla Common Voice (CC0).
+
+### `facebook/wav2vec2-large-960h`
+- **License:** [Apache License 2.0](https://huggingface.co/facebook/wav2vec2-large-960h)
+- **Copyright:** Copyright (c) Meta Platforms, Inc. and affiliates.
+
+### Piper voice `de_DE-thorsten-medium`
+- **Source:** [rhasspy/piper-voices](https://huggingface.co/rhasspy/piper-voices). See the voice's model card for its license and dataset.
 
 ---
 
