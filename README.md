@@ -38,7 +38,12 @@ Self-hosted **German pronunciation assessment**. Record a sentence and get a pro
 
 3. When the log says `Ready`, open **http://localhost:8002**.
 
-The first assessment downloads the models (several GB) from Hugging Face, so it takes a few minutes. Later runs load them from the cache.
+**First run:** the first request to each service downloads its models from Hugging Face automatically, so expect a few minutes of waiting:
+
+- The ASR service downloads **Qwen3-ASR-1.7B**.
+- The scoring service (OpenPronounce) downloads **three Wav2Vec2 models**.
+
+Later starts load them from the local cache. See [Models](#models) for estimated sizes and the lighter alternative (updated 29 Sep 2026). In my testing, Qwen3-ASR-1.7B gives clearly better German transcriptions than 0.6B, but needs significantly more VRAM.
 
 ## Usage
 
@@ -111,7 +116,7 @@ curl -F file=@recording.wav -F language=de http://localhost:8001/v1/audio/transc
 
 | Flag | Default | |
 |---|---|---|
-| `--model` | `Qwen3-ASR-0.6B` | ASR model, see below |
+| `--model` | `Qwen3-ASR-1.7B` | ASR model, see [Models](#models) |
 | `--device` | `auto` | `auto`, `cuda`, `mps` or `cpu` |
 | `--host` | `0.0.0.0` | Bind address |
 | `--asr-port` / `--pronounce-port` | `8001` / `8002` | Service ports |
@@ -121,16 +126,6 @@ curl -F file=@recording.wav -F language=de http://localhost:8001/v1/audio/transc
 | `--python` / `--no-auto-setup` | | Use a specific interpreter / don't create `.venv` |
 
 You can also run the services separately: `python asr_server.py --port 8001` and `python pronounce_server.py --port 8002`. Both take `--host` and `--device`.
-
-### ASR model
-
-| `--model` | Hugging Face repo | |
-|---|---|---|
-| `Qwen3-ASR-0.6B` (default) | `Qwen/Qwen3-ASR-0.6B-hf` | Fast, small VRAM footprint |
-| `Qwen3-ASR-1.7B` | `Qwen/Qwen3-ASR-1.7B-hf` | More accurate |
-| any other value | a repo ID or local path | Must be a Qwen3-ASR `-hf` checkpoint |
-
-Set it with `--model` or the `PHONOSCORE_ASR_MODEL` environment variable. Weights go to the Hugging Face cache (`~/.cache/huggingface`, or wherever `HF_HOME` points). To run offline, pass a local path and set `HF_HUB_OFFLINE=1`.
 
 ### llama-swap
 
@@ -142,6 +137,28 @@ llama-swap --config llama-swap.yaml --port 8080
 ```
 
 In the web app, choose **llama-swap** under Settings. See the [llama-swap README](https://github.com/mostlygeek/llama-swap) for how it works.
+
+## Models
+
+All models download from Hugging Face on first use and are stored in the Hugging Face cache (`~/.cache/huggingface`, or wherever `HF_HOME` points). Sizes are estimates as of 29 Sep 2026.
+
+**ASR** (choose with `--model` or `PHONOSCORE_ASR_MODEL`):
+
+| `--model` | Hugging Face repo | Download (est.) | |
+|---|---|---|---|
+| `Qwen3-ASR-1.7B` (default) | `Qwen/Qwen3-ASR-1.7B-hf` | ~4 GB | Best results in my testing; significantly more VRAM |
+| `Qwen3-ASR-0.6B` | `Qwen/Qwen3-ASR-0.6B-hf` | ~2 GB | For smaller GPUs or CPU |
+| any other value | a repo ID or local path | | Must be a Qwen3-ASR `-hf` checkpoint |
+
+**Scoring** (OpenPronounce, fixed):
+
+| Hugging Face repo | Download (est.) | Used for |
+|---|---|---|
+| `facebook/wav2vec2-lv-60-espeak-cv-ft` | ~1.2 GB | Recognizing the phones actually spoken |
+| `jonatasgrosman/wav2vec2-large-xlsr-53-german` | ~1.2 GB | German word transcription |
+| `facebook/wav2vec2-large-960h` | ~1.2 GB | Acoustic comparison with a reference recording |
+
+OpenPronounce creates that reference recording with Google Translate TTS by default, which sends the expected sentence to Google. To keep everything local, install `openpronounce[tts-piper]` and set `OPENPRONOUNCE_TTS=piper`; this downloads a ~60 MB German voice. For fully offline use, also pass a local path to `--model` and set `HF_HUB_OFFLINE=1` once the models are cached.
 
 ## How it works
 

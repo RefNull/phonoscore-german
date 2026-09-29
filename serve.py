@@ -86,7 +86,7 @@ def resolve_python_executable(explicit_exe: Optional[str] = None, auto_setup: bo
 
 
 def parse_args(args: Optional[list[str]] = None) -> argparse.Namespace:
-    default_model = os.environ.get("PHONOSCORE_ASR_MODEL", "Qwen3-ASR-0.6B")
+    default_model = os.environ.get("PHONOSCORE_ASR_MODEL", "Qwen3-ASR-1.7B")
     parser = argparse.ArgumentParser(description="Run the PhonoScore ASR and pronunciation services together.")
     parser.add_argument("--stop", action="store_true", help="stop the background deployment")
     parser.add_argument("--status", action="store_true", help="show whether the services are up")
@@ -98,7 +98,7 @@ def parse_args(args: Optional[list[str]] = None) -> argparse.Namespace:
     parser.add_argument(
         "--model",
         default=default_model,
-        help=f"Qwen3-ASR-0.6B, Qwen3-ASR-1.7B, a Hugging Face repo or a local path (default: {default_model})",
+        help=f"Qwen3-ASR-1.7B, Qwen3-ASR-0.6B, a Hugging Face repo or a local path (default: {default_model})",
     )
     parser.add_argument("--device", default="auto", help="auto, cuda, mps or cpu (default: auto)")
     parser.add_argument("--python", default=None, help="interpreter for the services (default: .venv, created if missing)")

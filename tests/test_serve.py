@@ -40,7 +40,7 @@ def test_parse_args_defaults():
     assert args.host == "0.0.0.0"
     assert args.asr_port == 8001
     assert args.pronounce_port == 8002
-    assert args.model == "Qwen3-ASR-0.6B"
+    assert args.model == "Qwen3-ASR-1.7B"
     assert args.device == "auto"
 
 
@@ -75,9 +75,9 @@ def test_parse_args_port_collision():
 
 def test_parse_args_env_model(monkeypatch):
     """Verify that PHONOSCORE_ASR_MODEL env var sets the default model."""
-    monkeypatch.setenv("PHONOSCORE_ASR_MODEL", "Qwen3-ASR-1.7B")
+    monkeypatch.setenv("PHONOSCORE_ASR_MODEL", "Qwen3-ASR-0.6B")
     args = parse_args([])
-    assert args.model == "Qwen3-ASR-1.7B"
+    assert args.model == "Qwen3-ASR-0.6B"
 
 
 def test_build_commands():

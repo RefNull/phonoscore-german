@@ -2,15 +2,15 @@
 # Model options: https://github.com/mostlygeek/llama-swap
 models:
   qwen3-asr:
-    cmd: python asr_server.py --port ${PORT} --model Qwen3-ASR-0.6B
-    ttl: 3600
-    healthCheckTimeout: 120
-    checkEndpoint: /health
-
-  qwen3-asr-1.7b:
     cmd: python asr_server.py --port ${PORT} --model Qwen3-ASR-1.7B
     ttl: 3600
     healthCheckTimeout: 180
+    checkEndpoint: /health
+
+  qwen3-asr-0.6b:
+    cmd: python asr_server.py --port ${PORT} --model Qwen3-ASR-0.6B
+    ttl: 3600
+    healthCheckTimeout: 120
     checkEndpoint: /health
 
   openpronounce:
@@ -25,5 +25,5 @@ groups:
     swap: false
     members:
       - qwen3-asr
-      - qwen3-asr-1.7b
+      - qwen3-asr-0.6b
       - openpronounce

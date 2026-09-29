@@ -32,7 +32,8 @@ def resolve_model_id(model_name: str) -> str:
     return MODEL_PRESETS.get(stripped.lower(), stripped)
 
 
-MODEL_ID = resolve_model_id(os.environ.get("PHONOSCORE_ASR_MODEL", "Qwen3-ASR-0.6B"))
+DEFAULT_MODEL = "Qwen3-ASR-1.7B"
+MODEL_ID = resolve_model_id(os.environ.get("PHONOSCORE_ASR_MODEL", DEFAULT_MODEL))
 _transcriber = None
 _load_lock = threading.Lock()
 
@@ -111,7 +112,7 @@ async def transcribe(
 
 
 def parse_args(args: Optional[list[str]] = None) -> argparse.Namespace:
-    default_model = os.environ.get("PHONOSCORE_ASR_MODEL", "Qwen3-ASR-0.6B")
+    default_model = os.environ.get("PHONOSCORE_ASR_MODEL", DEFAULT_MODEL)
     parser = argparse.ArgumentParser(description="PhonoScore ASR service (Qwen3-ASR)")
     parser.add_argument("--host", default="0.0.0.0", help="bind address (default: 0.0.0.0)")
     parser.add_argument("--port", type=int, default=8001, help="port (default: 8001)")

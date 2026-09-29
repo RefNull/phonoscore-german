@@ -194,7 +194,7 @@ def test_parse_args(monkeypatch):
     assert defaults.host == "0.0.0.0"
     assert defaults.port == 8001
     assert defaults.device == "auto"
-    assert defaults.model_id == "Qwen/Qwen3-ASR-0.6B-hf"
+    assert defaults.model_id == "Qwen/Qwen3-ASR-1.7B-hf"
 
     custom = parse_args([
         "--host", "127.0.0.1",
@@ -213,9 +213,9 @@ def test_parse_args(monkeypatch):
     custom_model = parse_args(["--model", "my-org/custom"])
     assert custom_model.model_id == "my-org/custom"
 
-    monkeypatch.setenv("PHONOSCORE_ASR_MODEL", "1.7b")
+    monkeypatch.setenv("PHONOSCORE_ASR_MODEL", "0.6b")
     env_args = parse_args([])
-    assert env_args.model_id == "Qwen/Qwen3-ASR-1.7B-hf"
+    assert env_args.model_id == "Qwen/Qwen3-ASR-0.6B-hf"
 
 
 def test_cors_headers(client):
