@@ -1,13 +1,7 @@
 #!/usr/bin/env python3
-"""
-Interactive Command-Line Client for German Speech Fluency & Pronunciation Assessment.
+"""PhonoScore command-line client: record or load German speech, then print a pronunciation report.
 
-Coordinates requests to:
-  1. Fluency Microservice (Qwen3-ASR) for real-time transcription verification.
-  2. Pronunciation Microservice (OpenPronounce) for phoneme-level German assessment.
-
-Can query either via llama-swap router (default) or directly to individual microservice servers.
-Supports microphone capture via sounddevice and pre-recorded audio evaluation via --audio-file.
+Talks to the services started by serve.py, or to llama-swap with --router.
 """
 
 import argparse
@@ -18,7 +12,7 @@ import sys
 from typing import Any, Dict, List, Optional
 from urllib.parse import urlparse
 
-# If not running inside an active virtualenv, re-execute with project .venv if available
+# Outside a virtualenv, re-run with the project's .venv if there is one
 if sys.prefix == getattr(sys, "base_prefix", sys.prefix):
     repo_dir = Path(__file__).resolve().parent
     venv_python = (
@@ -27,8 +21,8 @@ if sys.prefix == getattr(sys, "base_prefix", sys.prefix):
         else repo_dir / ".venv" / "bin" / "python"
     )
     if venv_python.is_file() and os.access(venv_python, os.X_OK):
-        if os.environ.get("_MDD_CLI_VENV_EXEC") != "1":
-            os.environ["_MDD_CLI_VENV_EXEC"] = "1"
+        if os.environ.get("_PHONOSCORE_CLI_VENV_EXEC") != "1":
+            os.environ["_PHONOSCORE_CLI_VENV_EXEC"] = "1"
             os.execv(str(venv_python), [str(venv_python)] + sys.argv)
 
 import numpy as np
@@ -52,7 +46,7 @@ def _post_multipart(
     direct: bool = False,
     timeout: float = 60.0,
 ) -> dict:
-    """Deduplicated HTTP multipart POST execution and connection error diagnostics."""
+    """POST a multipart form and return the JSON body; raise with a hint on how to fix connection errors."""
     try:
         response = requests.post(url, files=files, data=data, timeout=timeout)
     except requests.exceptions.ConnectionError as err:
@@ -61,17 +55,11 @@ def _post_multipart(
         base_url = f"{parsed.scheme}://{parsed.netloc}" if parsed.netloc else url
         target_name = f"{service_label} server at {base_url}" if direct else f"llama-swap router at {base_url}"
         guidance = (
-            f"Ensure {script_name} is running:\n  python {script_name} --port {port}"
+            f"Start the services with 'python serve.py' (or 'python {script_name} --port {port}')."
             if direct
-            else (
-                "Ensure llama-swap is running:\n"
-                "  llama-swap --config llama-swap.yaml\n"
-                "Or pass '--direct' to query the ASR and Pronounce servers directly."
-            )
+            else "Start llama-swap with 'llama-swap --config llama-swap.yaml', or drop --router."
         )
-        raise ConnectionRefusedError(
-            f"Failed to connect to {target_name}.\nConnection was refused.\n{guidance}"
-        ) from err
+        raise ConnectionRefusedError(f"Could not connect to the {target_name}.\n{guidance}") from err
     except requests.exceptions.RequestException as err:
         raise RuntimeError(f"{service_label} request failed: {err}") from err
 
@@ -84,58 +72,57 @@ def _post_multipart(
 
 
 def parse_args(args: Optional[List[str]] = None) -> argparse.Namespace:
-    """Parse command-line arguments."""
     parser = argparse.ArgumentParser(
-        description="German Speech Fluency & Phonetic Pronunciation Assessment Client",
+        description="Score German pronunciation from the microphone or an audio file.",
         formatter_class=argparse.ArgumentDefaultsHelpFormatter,
     )
     parser.add_argument(
         "--text",
         type=str,
         default="Ich habe morgen einen Termin beim Arzt.",
-        help="Target German prompt sentence to evaluate against.",
-    )
-    parser.add_argument(
-        "--router-url",
-        type=str,
-        default="http://localhost:8080",
-        help="llama-swap daemon address.",
+        help="German sentence the speaker should say.",
     )
     parser.add_argument(
         "--audio-file",
         type=str,
         default=None,
-        help="Path to pre-recorded audio file (.wav or .ogg) to evaluate without microphone.",
-    )
-    parser.add_argument(
-        "--direct",
-        action="store_true",
-        default=False,
-        help="If set, query ASR and Pronounce servers directly instead of through llama-swap.",
+        help="Score a .wav or .ogg file instead of recording.",
     )
     parser.add_argument(
         "--asr-url",
         type=str,
         default="http://localhost:8001",
-        help="Direct URL for ASR server (used if --direct is enabled).",
+        help="ASR service URL.",
     )
     parser.add_argument(
         "--pronounce-url",
         type=str,
         default="http://localhost:8002",
-        help="Direct URL for OpenPronounce server (used if --direct is enabled).",
+        help="Pronunciation service URL.",
+    )
+    parser.add_argument(
+        "--router",
+        action="store_true",
+        default=False,
+        help="Send both requests through llama-swap at --router-url.",
+    )
+    parser.add_argument(
+        "--router-url",
+        type=str,
+        default="http://localhost:8080",
+        help="llama-swap URL.",
     )
     parser.add_argument(
         "--samplerate",
         type=int,
         default=16000,
-        help="Audio sample rate in Hz for microphone recording.",
+        help="Microphone sample rate in Hz.",
     )
     return parser.parse_args(args)
 
 
 def array_to_wav_bytes(data: np.ndarray, samplerate: int = 16000) -> bytes:
-    """Pack numpy array of audio samples into an in-memory 16-bit PCM WAV buffer."""
+    """Encode samples as 16-bit PCM WAV bytes."""
     buffer = io.BytesIO()
     sf.write(buffer, data, samplerate, format="WAV", subtype="PCM_16")
     return buffer.getvalue()
@@ -145,17 +132,12 @@ def record_audio(
     samplerate: int = 16000,
     input_fn=input,
 ) -> bytes:
-    """
-    Record audio from the microphone until the user presses Enter.
-    Returns 16-bit PCM WAV bytes at the specified samplerate.
-    """
+    """Record from the microphone until Enter is pressed; return WAV bytes."""
     if sd is None:
         raise RuntimeError(
-            "Microphone recording is unavailable: 'sounddevice' (or PortAudio library) is not loaded.\n"
-            "If running over SSH or on a headless server without microphone hardware:\n"
-            "  -> Use '--audio-file <path_to_audio.wav>' to evaluate pre-recorded audio.\n"
-            "  -> Or open 'client.html' in your browser to record audio with your client microphone.\n"
-            "  -> Or install PortAudio system libraries: 'sudo apt install libportaudio2' (Linux) or 'brew install portaudio' (macOS)."
+            "No microphone support: 'sounddevice' or the PortAudio library is missing.\n"
+            "  Use --audio-file <file.wav>, or record in the web UI (http://<server>:8002).\n"
+            "  To enable recording here: 'sudo apt install libportaudio2' or 'brew install portaudio'."
         )
 
     input_fn("Press Enter to start recording...")
@@ -176,9 +158,7 @@ def record_audio(
     except Exception as exc:
         raise RuntimeError(
             f"Microphone recording failed: {exc}.\n"
-            "If running over SSH or on a headless server without microphone hardware:\n"
-            "  -> Use '--audio-file <path_to_audio.wav>' to evaluate pre-recorded audio.\n"
-            "  -> Or open 'client.html' in your browser to record audio with your client microphone."
+            "  Use --audio-file <file.wav>, or record in the web UI (http://<server>:8002)."
         ) from exc
 
     if not chunks:
@@ -190,7 +170,7 @@ def record_audio(
 
 
 def load_audio_file(file_path: str | Path) -> bytes:
-    """Load an audio file into in-memory bytes with validation."""
+    """Read an audio file, rejecting missing or empty files."""
     path = Path(file_path)
     if not path.is_file():
         raise FileNotFoundError(f"Audio file not found: {file_path}")
@@ -207,7 +187,7 @@ def query_asr(
     filename: str = "audio.wav",
     timeout: float = 60.0,
 ) -> str:
-    """Step 1: Send audio to ASR endpoint for fluency transcription."""
+    """Transcribe the audio; return the text."""
     url = f"{target_url.rstrip('/')}/v1/audio/transcriptions"
     mime_type = "audio/ogg" if filename.lower().endswith(".ogg") else "audio/wav"
     files = {"file": (filename, wav_bytes, mime_type)}
@@ -238,7 +218,7 @@ def query_pronounce(
     filename: str = "audio.wav",
     timeout: float = 120.0,
 ) -> Dict[str, Any]:
-    """Step 2: Send audio and target text to OpenPronounce assessment endpoint."""
+    """Score the audio against expected_text; return the /assess JSON."""
     url = f"{target_url.rstrip('/')}/assess" if direct else f"{target_url.rstrip('/')}/upstream/openpronounce/assess"
     mime_type = "audio/ogg" if filename.lower().endswith(".ogg") else "audio/wav"
     files = {"file": (filename, wav_bytes, mime_type)}
@@ -257,7 +237,7 @@ def query_pronounce(
 
 
 def format_score_bar(score: float, width: int = 20) -> str:
-    """Format score into visual progress bar: e.g. [================>   ] 82.5 / 100"""
+    """Render e.g. '[================>   ] 82.5 / 100'."""
     clamped = max(0.0, min(100.0, float(score)))
     filled = int(round((clamped / 100.0) * width))
     if filled <= 0:
@@ -270,13 +250,7 @@ def format_score_bar(score: float, width: int = 20) -> str:
 
 
 def format_report(target_text: str, asr_text: str, assessment: Dict[str, Any]) -> str:
-    """
-    Generate structured terminal report per specifications:
-      - Overall Score (0-100) with visual score bar
-      - Fluency / Transcription Comparison (Target vs ASR vs Wav2Vec2)
-      - Phoneme Error Rate (PER)
-      - List of flagged words with expected vs actual heard IPA and confidence percentage
-    """
+    """Build the terminal report: score, PER, the three transcriptions, and flagged words."""
     score = float(assessment.get("score", 0.0))
     w2v2_text = assessment.get("transcription", "")
     per = float(assessment.get("phoneme_error_rate", 0.0))
@@ -287,23 +261,20 @@ def format_report(target_text: str, asr_text: str, assessment: Dict[str, Any]) -
 
     lines: List[str] = [
         "=" * 74,
-        "             GERMAN PRONUNCIATION & FLUENCY ASSESSMENT REPORT",
-        "=" * 74,
-        f"Overall Score:            {score_bar}",
-        f"Phoneme Error Rate (PER): {per_pct} ({per:.3f})",
+        f"Score:                {score_bar}",
+        f"Phoneme error rate:   {per_pct}",
         "-" * 74,
-        "FLUENCY / TRANSCRIPTION COMPARISON:",
-        f"  Target Sentence:        {target_text}",
-        f"  Qwen3-ASR (Fluency):    {asr_text}",
-        f"  Wav2Vec2 (Alignment):   {w2v2_text}",
+        f"Expected:             {target_text}",
+        f"Heard (Qwen3-ASR):    {asr_text}",
+        f"Heard (Wav2Vec2):     {w2v2_text}",
         "-" * 74,
     ]
 
     if not errors:
-        lines.append("FLAGGED WORDS: None. Perfect pronunciation detected!")
+        lines.append("No mispronounced words.")
     else:
-        lines.append(f"FLAGGED WORDS ({len(errors)} mispronunciation{'s' if len(errors) > 1 else ''} detected):")
-        lines.append(f"  {'Word':<16} {'Expected IPA':<18} {'Actual Heard IPA':<18} {'Confidence':<10}")
+        lines.append(f"Mispronounced words ({len(errors)}):")
+        lines.append(f"  {'Word':<16} {'Expected IPA':<18} {'Heard IPA':<18} {'Confidence':<10}")
         lines.append(f"  {'-'*16} {'-'*18} {'-'*18} {'-'*10}")
         for err in errors:
             word = str(err.get("word", ""))
@@ -321,17 +292,14 @@ def format_report(target_text: str, asr_text: str, assessment: Dict[str, Any]) -
 
 
 def main(argv: Optional[List[str]] = None) -> int:
-    """Main client entry point."""
     args = parse_args(argv)
+    direct = not args.router
 
-    print("\n" + "=" * 74)
-    print("         MDD Service DE — Speech Fluency & Pronunciation Client")
-    print("=" * 74)
-    print(f"Target German Sentence:\n  \"{args.text}\"\n")
+    print(f"PhonoScore German\nSay: \"{args.text}\"\n")
 
     filename = "audio.wav"
     if args.audio_file:
-        print(f"Reading pre-recorded audio file: {args.audio_file}")
+        print(f"Reading {args.audio_file}")
         try:
             wav_bytes = load_audio_file(args.audio_file)
             filename = Path(args.audio_file).name
@@ -349,19 +317,15 @@ def main(argv: Optional[List[str]] = None) -> int:
         print("\n[Error] Recorded audio buffer is empty.", file=sys.stderr)
         return 1
 
-    asr_endpoint = args.asr_url if args.direct else args.router_url
-    pronounce_endpoint = args.pronounce_url if args.direct else args.router_url
+    asr_endpoint = args.asr_url if direct else args.router_url
+    pronounce_endpoint = args.pronounce_url if direct else args.router_url
 
-    mode = "Direct Server" if args.direct else "llama-swap Router"
-    print(f"Coordinating assessment ({mode})...")
-
-    # Step 1: Fluency / ASR
-    print("  -> Step 1/2: Querying fluency transcription (Qwen3-ASR)...")
+    print("Transcribing...")
     try:
         asr_text = query_asr(
             wav_bytes=wav_bytes,
             target_url=asr_endpoint,
-            direct=args.direct,
+            direct=direct,
             language="de",
             filename=filename,
         )
@@ -372,13 +336,12 @@ def main(argv: Optional[List[str]] = None) -> int:
         print(f"\n[Error] ASR step failed: {exc}", file=sys.stderr)
         return 1
 
-    # Step 2: Phonetic Assessment
-    print("  -> Step 2/2: Querying phonetic assessment (OpenPronounce)...")
+    print("Scoring pronunciation...")
     try:
         assessment = query_pronounce(
             wav_bytes=wav_bytes,
             target_url=pronounce_endpoint,
-            direct=args.direct,
+            direct=direct,
             expected_text=args.text,
             lang="de",
             filename=filename,
@@ -387,10 +350,9 @@ def main(argv: Optional[List[str]] = None) -> int:
         print(f"\n[Connection Error] {exc}", file=sys.stderr)
         return 1
     except Exception as exc:
-        print(f"\n[Error] Phonetic assessment step failed: {exc}", file=sys.stderr)
+        print(f"\n[Error] Pronunciation scoring failed: {exc}", file=sys.stderr)
         return 1
 
-    # Terminal report presentation
     print()
     report = format_report(
         target_text=args.text,

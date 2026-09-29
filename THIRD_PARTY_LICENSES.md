@@ -1,8 +1,6 @@
 # Third-Party Licenses and Attributions
 
-`mdd-service-de` is licensed under the [MIT License](LICENSE).
-
-This project incorporates, depends upon, or interfaces with third-party software, libraries, and machine learning models. Below is an overview of their respective licenses and attribution notices.
+PhonoScore German is licensed under the [MIT License](LICENSE). It depends on the third-party software and models below.
 
 ---
 
@@ -36,7 +34,7 @@ This project incorporates, depends upon, or interfaces with third-party software
 
 ## 3. Pre-trained AI Models
 
-### `Qwen/Qwen3-ASR-0.6B` / `Qwen/Qwen3-ASR-0.6B-hf`
+### `Qwen/Qwen3-ASR-0.6B-hf` / `Qwen/Qwen3-ASR-1.7B-hf`
 - **License:** [Apache License 2.0](https://github.com/QwenLM/Qwen3-ASR/blob/main/LICENSE)
 - **Copyright:** Copyright 2026 Alibaba Cloud (Qwen Team).
 
@@ -51,7 +49,7 @@ This project incorporates, depends upon, or interfaces with third-party software
 
 ## 4. System Prerequisites (External Tools)
 
-The following tools are external operating system binaries and are not bundled or distributed within this repository:
+These are installed separately and are not distributed with this repository:
 
-- **`ffmpeg`** ([LGPL v2.1+ / GPL v2.0+](https://www.ffmpeg.org/legal.html)): Invoked out-of-process via standard OS execution boundaries for audio decoding and resampling.
-- **`espeak-ng`** ([GPL v3.0+](https://github.com/espeak-ng/espeak-ng/blob/master/COPYING)): Invoked out-of-process for German phonetic grapheme-to-phoneme (G2P) conversion.
+- **`ffmpeg`** ([LGPL v2.1+ / GPL v2.0+](https://www.ffmpeg.org/legal.html)): Run as a separate process for audio decoding.
+- **`espeak-ng`** ([GPL v3.0+](https://github.com/espeak-ng/espeak-ng/blob/master/COPYING)): Run as a separate process for German grapheme-to-phoneme conversion.

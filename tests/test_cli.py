@@ -47,7 +47,7 @@ def test_parse_args_defaults():
     assert args.text == "Ich habe morgen einen Termin beim Arzt."
     assert args.router_url == "http://localhost:8080"
     assert args.audio_file is None
-    assert args.direct is False
+    assert args.router is False
     assert args.asr_url == "http://localhost:8001"
     assert args.pronounce_url == "http://localhost:8002"
     assert args.samplerate == 16000
@@ -59,7 +59,7 @@ def test_parse_args_custom():
         "--text", "Wie heißen Sie?",
         "--router-url", "http://192.0.2.1:8080",
         "--audio-file", "samples/test.wav",
-        "--direct",
+        "--router",
         "--asr-url", "http://localhost:8010",
         "--pronounce-url", "http://localhost:8020",
         "--samplerate", "48000",
@@ -67,7 +67,7 @@ def test_parse_args_custom():
     assert args.text == "Wie heißen Sie?"
     assert args.router_url == "http://192.0.2.1:8080"
     assert args.audio_file == "samples/test.wav"
-    assert args.direct is True
+    assert args.router is True
     assert args.asr_url == "http://localhost:8010"
     assert args.pronounce_url == "http://localhost:8020"
     assert args.samplerate == 48000
@@ -144,7 +144,7 @@ def test_record_audio_mocked():
         mock_input_calls.append(prompt)
         return ""
 
-    with patch("cli.sd.InputStream", side_effect=MockInputStream):
+    with patch("cli.sd", MagicMock(InputStream=MockInputStream)):
         wav_bytes = record_audio(samplerate=16000, input_fn=mock_input)
 
     assert len(mock_input_calls) == 2
@@ -155,7 +155,7 @@ def test_record_audio_mocked():
 
 def test_record_audio_stream_failure():
     """Verify RuntimeError is raised when microphone stream fails."""
-    with patch("cli.sd.InputStream", side_effect=RuntimeError("PortAudio device error")):
+    with patch("cli.sd", MagicMock(InputStream=MagicMock(side_effect=RuntimeError("PortAudio device error")))):
         with pytest.raises(RuntimeError, match="Microphone recording failed"):
             record_audio(input_fn=lambda prompt="": None)
 
@@ -163,7 +163,7 @@ def test_record_audio_stream_failure():
 def test_record_audio_sounddevice_missing():
     """Verify informative RuntimeError when sounddevice is None."""
     with patch("cli.sd", None):
-        with pytest.raises(RuntimeError, match="Microphone recording is unavailable"):
+        with pytest.raises(RuntimeError, match="No microphone support"):
             record_audio(input_fn=lambda prompt="": None)
 
 
@@ -183,7 +183,6 @@ def test_main_pre_recorded_audio_without_sounddevice(tmp_path):
         exit_code = main([
             "--text", "Ich habe morgen einen Termin.",
             "--audio-file", str(sample_wav),
-            "--direct"
         ])
         assert exit_code == 0
 
@@ -256,7 +255,7 @@ def test_query_asr_connection_error_direct():
         with pytest.raises(ConnectionRefusedError) as exc_info:
             query_asr(b"dummy", "http://localhost:8001", direct=True)
         assert "ASR server" in str(exc_info.value)
-        assert "python asr_server.py" in str(exc_info.value)
+        assert "python serve.py" in str(exc_info.value)
 
 
 def test_query_asr_http_error():
@@ -344,7 +343,7 @@ def test_query_pronounce_connection_error():
         with pytest.raises(ConnectionRefusedError) as exc_info:
             query_pronounce(b"dummy", "http://localhost:8002", direct=True)
         assert "Pronunciation server" in str(exc_info.value)
-        assert "python pronounce_server.py" in str(exc_info.value)
+        assert "python serve.py" in str(exc_info.value)
 
 
 def test_query_pronounce_http_error():
@@ -410,13 +409,12 @@ def test_format_report_with_errors():
     assert "82.5 / 100" in report
     # Check PER
     assert "12.0%" in report
-    assert "0.120" in report
     # Check Transcriptions
-    assert "Target Sentence:        Ich habe morgen einen Termin beim Arzt." in report
-    assert "Qwen3-ASR (Fluency):    Ich habe morgen einen Termin beim Arzt." in report
-    assert "Wav2Vec2 (Alignment):   Ich habe morgen einen Termin beim Arzt." in report
+    assert "Expected:             Ich habe morgen einen Termin beim Arzt." in report
+    assert "Heard (Qwen3-ASR):    Ich habe morgen einen Termin beim Arzt." in report
+    assert "Heard (Wav2Vec2):     Ich habe morgen einen Termin beim Arzt." in report
     # Check Flagged Word details
-    assert "FLAGGED WORDS (1 mispronunciation detected):" in report
+    assert "Mispronounced words (1):" in report
     assert "Termin" in report
     assert "tɛʁˈmiːn" in report
     assert "tɛɹˈmiːn" in report
@@ -440,7 +438,7 @@ def test_format_report_no_errors():
 
     assert "100.0 / 100" in report
     assert "0.0%" in report
-    assert "FLAGGED WORDS: None. Perfect pronunciation detected!" in report
+    assert "No mispronounced words." in report
 
 
 # ---------------------------------------------------------------------------
@@ -480,15 +478,17 @@ def test_main_pre_recorded_audio_evaluation_flow(tmp_path, capsys):
             return mock_pronounce_resp
         raise ValueError(f"Unexpected url: {url}")
 
-    with patch("requests.post", side_effect=mock_post_dispatch):
+    with patch("requests.post", side_effect=mock_post_dispatch) as mock_post:
         exit_code = main([
             "--audio-file", str(audio_path),
-            "--direct",
         ])
 
     assert exit_code == 0
+    # Direct to the serve.py ports by default
+    urls = [c.args[0] for c in mock_post.call_args_list]
+    assert urls == ["http://localhost:8001/v1/audio/transcriptions", "http://localhost:8002/assess"]
     captured = capsys.readouterr()
-    assert "MDD Service DE" in captured.out
+    assert "PhonoScore German" in captured.out
     assert "85.0 / 100" in captured.out
     assert "Termin" in captured.out
 
@@ -509,9 +509,24 @@ def test_main_connection_error(tmp_path, capsys):
     with patch("requests.post", side_effect=requests.exceptions.ConnectionError("Refused")):
         exit_code = main([
             "--audio-file", str(audio_path),
-            "--direct",
         ])
 
     assert exit_code == 1
     captured = capsys.readouterr()
     assert "Connection Error" in captured.err
+
+
+def test_main_router_flag_uses_llama_swap(tmp_path):
+    """--router sends both requests to the llama-swap URL."""
+    audio_path = tmp_path / "audio.wav"
+    audio_path.write_bytes(array_to_wav_bytes(make_dummy_pcm16_array()))
+
+    with patch("cli.query_asr", return_value="Hallo") as mock_asr, \
+         patch("cli.query_pronounce", return_value={"score": 90.0, "errors": []}) as mock_pronounce:
+        exit_code = main(["--audio-file", str(audio_path), "--router", "--router-url", "http://192.0.2.1:8080"])
+
+    assert exit_code == 0
+    assert mock_asr.call_args.kwargs["target_url"] == "http://192.0.2.1:8080"
+    assert mock_asr.call_args.kwargs["direct"] is False
+    assert mock_pronounce.call_args.kwargs["target_url"] == "http://192.0.2.1:8080"
+    assert mock_pronounce.call_args.kwargs["direct"] is False

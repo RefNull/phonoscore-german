@@ -1,17 +1,4 @@
-"""
-OpenPronounce Pronunciation Assessment Microservice.
-
-Provides a pronunciation assessment API (POST /assess) and health check endpoint
-(GET /health) wrapping OpenPronounce.
-
-Documentation Sources:
-- https://github.com/Halleck45/OpenPronounce
-
-TTS & Reference Audio Architecture:
-Chatterbox Multilingual V3 is the target reference TTS engine for German,
-with current fallback to openpronounce's default TTS engines (e.g., via
-OPENPRONOUNCE_TTS env var).
-"""
+"""Pronunciation scoring service (OpenPronounce): POST /assess, and the web UI at GET /."""
 
 import argparse
 import asyncio
@@ -23,6 +10,7 @@ from typing import Optional
 
 from fastapi import FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import FileResponse
 import torch
 
 try:
@@ -35,7 +23,7 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(na
 
 
 def resolve_device(device_name: str = "auto") -> str:
-    """Resolve device based on environment and requested device."""
+    """Pick a device ("auto" tries cuda, then mps, then cpu) and pass it to OpenPronounce."""
     resolved = (
         ("cuda" if torch.cuda.is_available() else ("mps" if torch.backends.mps.is_available() else "cpu"))
         if device_name == "auto"
@@ -46,12 +34,9 @@ def resolve_device(device_name: str = "auto") -> str:
 
 
 device = resolve_device()
+CLIENT_HTML = Path(__file__).resolve().parent / "client.html"
 
-app = FastAPI(
-    title="OpenPronounce Assessment Service",
-    description="FastAPI microservice wrapping OpenPronounce for German pronunciation assessment",
-    version="1.0.0",
-)
+app = FastAPI(title="PhonoScore", description="German pronunciation scoring (OpenPronounce)", version="1.0.0")
 
 app.add_middleware(
     CORSMiddleware,
@@ -62,9 +47,13 @@ app.add_middleware(
 )
 
 
+@app.get("/", include_in_schema=False)
+async def web_ui():
+    return FileResponse(CLIENT_HTML, media_type="text/html")
+
+
 @app.get("/health")
 async def health():
-    """Health check endpoint."""
     return {"status": "ok", "service": "openpronounce", "device": device}
 
 
@@ -74,7 +63,7 @@ async def assess(
     expected_text: str = Form(...),
     lang: str = Form("de"),
 ):
-    """Assess pronunciation of uploaded audio file (.wav or .ogg) against expected text."""
+    """Score the pronunciation in an audio file (.wav or .ogg) against the expected text."""
     if not expected_text or not expected_text.strip():
         raise HTTPException(status_code=422, detail="expected_text must not be empty or whitespace.")
 
@@ -136,15 +125,14 @@ async def assess(
 
 
 def parse_args(args: Optional[list[str]] = None) -> argparse.Namespace:
-    """Parse command-line arguments for the pronunciation assessment server."""
-    parser = argparse.ArgumentParser(description="Run OpenPronounce FastAPI Microservice")
-    parser.add_argument("--host", type=str, default="0.0.0.0", help="Host address to bind (default: 0.0.0.0)")
-    parser.add_argument("--port", type=int, default=8002, help="Port to bind (default: 8002)")
+    parser = argparse.ArgumentParser(description="PhonoScore pronunciation service (OpenPronounce)")
+    parser.add_argument("--host", type=str, default="0.0.0.0", help="bind address (default: 0.0.0.0)")
+    parser.add_argument("--port", type=int, default=8002, help="port (default: 8002)")
     parser.add_argument(
         "--device",
         type=str,
         default="auto",
-        help="Device to use: auto (cuda -> mps -> cpu), cuda, mps, cpu (default: auto)",
+        help="auto, cuda, mps or cpu (default: auto)",
     )
     return parser.parse_args(args)
 

@@ -14,10 +14,10 @@ torchvision
 torchaudio
 transformers>=4.49.0
 accelerate>=0.34.0
-openpronounce>=0.3.0,<0.4  # result shape parsed in pronounce_server.py; see D-002
+openpronounce>=0.3.0,<0.4  # pronounce_server.py parses the 0.3.x result format
 sounddevice>=0.5.0
 soundfile>=0.12.1
 requests>=2.32.0
 python-multipart>=0.0.12
-numpy>=2.0  # numpy 1.x has no wheels for Python >= 3.13; see decisions.md D-001
+numpy>=2.0  # 1.x has no wheels for Python 3.13+
 pytest>=8.0.0

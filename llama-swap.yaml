@@ -1,29 +1,25 @@
+# PhonoScore behind llama-swap: llama-swap --config llama-swap.yaml --port 8080
+# Model options: https://github.com/mostlygeek/llama-swap
 models:
-  # Default 0.6B fluency model
   qwen3-asr:
     cmd: python asr_server.py --port ${PORT} --model Qwen3-ASR-0.6B
     ttl: 3600
     healthCheckTimeout: 120
     checkEndpoint: /health
 
-  # Higher-capacity 1.7B fluency model
   qwen3-asr-1.7b:
     cmd: python asr_server.py --port ${PORT} --model Qwen3-ASR-1.7B
     ttl: 3600
     healthCheckTimeout: 180
     checkEndpoint: /health
 
-  # Pronunciation assessment microservice
   openpronounce:
     cmd: python pronounce_server.py --port ${PORT}
     ttl: 3600
     healthCheckTimeout: 180
     checkEndpoint: /health
 
-# Group definition to allow concurrent execution without mutual eviction.
-# By default, llama-swap unloads the previous model when a new one is requested.
-# Setting swap: false ensures qwen3-asr and openpronounce stay loaded in VRAM
-# simultaneously throughout the 2-step assessment flow, avoiding reload latency.
+# Each request uses both ASR and scoring; keep them loaded together instead of swapping.
 groups:
   pipeline:
     swap: false
@@ -31,4 +27,3 @@ groups:
       - qwen3-asr
       - qwen3-asr-1.7b
       - openpronounce
-

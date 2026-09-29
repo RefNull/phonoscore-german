@@ -216,7 +216,7 @@ def test_parse_args(monkeypatch):
     custom_model = parse_args(["--model", "my-org/custom"])
     assert custom_model.model_id == "my-org/custom"
 
-    monkeypatch.setenv("MDD_ASR_MODEL", "1.7b")
+    monkeypatch.setenv("PHONOSCORE_ASR_MODEL", "1.7b")
     env_args = parse_args([])
     assert env_args.model_id == "Qwen/Qwen3-ASR-1.7B-hf"
 

@@ -1,10 +1,8 @@
 #!/usr/bin/env python3
-"""Combined local deployment runner for mdd-service-de.
+"""Run the PhonoScore ASR and pronunciation services together.
 
-Runs both the Qwen3-ASR microservice and the OpenPronounce microservice
-in separate child processes on configurable ports with coordinated lifecycle management.
-Supports attached (foreground) mode, detached (background daemon) mode,
-automatic virtual environment bootstrapping, and comprehensive service logging.
+Creates .venv on first run, supervises both processes, and writes logs to ./logs.
+Supports --detach, --status, --logs and --stop.
 """
 
 from __future__ import annotations
@@ -30,17 +28,14 @@ logger = logging.getLogger("serve")
 
 
 def get_default_pid_file() -> Path:
-    """Return default PID file path located at project root."""
     return Path(__file__).resolve().parent / ".serve.pid"
 
 
 def get_default_log_dir() -> Path:
-    """Return default logs directory located at project root."""
     return Path(__file__).resolve().parent / "logs"
 
 
 def read_pid(pid_file: Path) -> Optional[int]:
-    """Read PID integer from file if it exists and is valid."""
     if not pid_file.is_file():
         return None
     try:
@@ -51,7 +46,6 @@ def read_pid(pid_file: Path) -> Optional[int]:
 
 
 def is_pid_running(pid: int) -> bool:
-    """Check if process with given PID is currently active."""
     if pid <= 0:
         return False
     try:
@@ -62,7 +56,7 @@ def is_pid_running(pid: int) -> bool:
 
 
 def check_dependencies(python_exe: str) -> bool:
-    """Verify that the target Python interpreter has the required microservice dependencies."""
+    """Return True if python_exe can import fastapi and uvicorn."""
     cmd = [python_exe, "-c", "import fastapi; import uvicorn"]
     try:
         res = subprocess.run(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=False)
@@ -72,7 +66,7 @@ def check_dependencies(python_exe: str) -> bool:
 
 
 def bootstrap_environment(repo_dir: Path) -> Optional[str]:
-    """Automatically create .venv and install requirements.txt if missing."""
+    """Create .venv and install requirements.txt if needed; return its python or None."""
     venv_dir = repo_dir / ".venv"
     venv_python = (
         venv_dir / "Scripts" / "python.exe"
@@ -81,23 +75,21 @@ def bootstrap_environment(repo_dir: Path) -> Optional[str]:
     )
 
     if not venv_python.exists():
-        logger.info("Project virtual environment not found at %s. Bootstrapping...", venv_dir)
+        logger.info("Creating virtual environment in %s", venv_dir)
         try:
             subprocess.run([sys.executable, "-m", "venv", str(venv_dir)], check=True)
-            logger.info(".venv initialized successfully.")
         except Exception as exc:
-            logger.error("Failed to initialize virtual environment: %s", exc)
+            logger.error("Could not create virtual environment: %s", exc)
             return None
 
     requirements = repo_dir / "requirements.txt"
     if requirements.exists() and not check_dependencies(str(venv_python)):
-        logger.info("Installing dependencies from requirements.txt into .venv (this may take a few minutes)...")
+        logger.info("Installing requirements.txt into .venv (takes a few minutes)")
         try:
             subprocess.run([str(venv_python), "-m", "pip", "install", "--upgrade", "pip"], check=False)
             subprocess.run([str(venv_python), "-m", "pip", "install", "-r", str(requirements)], check=True)
-            logger.info("Dependencies installed successfully into .venv.")
         except Exception as exc:
-            logger.error("Failed to install requirements into .venv: %s", exc)
+            logger.error("pip install failed: %s", exc)
             return None
 
     if check_dependencies(str(venv_python)):
@@ -106,19 +98,14 @@ def bootstrap_environment(repo_dir: Path) -> Optional[str]:
 
 
 def resolve_python_executable(explicit_exe: Optional[str] = None, auto_setup: bool = True) -> str:
-    """Resolve the Python executable to run child microservices.
+    """Choose the interpreter for the services.
 
-    Priority:
-    1. Explicitly provided executable (--python flag)
-    2. Current sys.executable if running inside an active virtualenv (sys.prefix != sys.base_prefix)
-    3. Project .venv or venv Python if present in repository root
-    4. Auto-bootstrapped .venv if auto_setup is enabled
-    5. Current sys.executable fallback
+    Order: --python, the active virtualenv, ./.venv or ./venv, a freshly bootstrapped .venv
+    (if auto_setup), then sys.executable.
     """
     if explicit_exe:
         return explicit_exe
 
-    # If running inside an activated virtualenv, stick with it
     if sys.prefix != getattr(sys, "base_prefix", sys.prefix):
         return sys.executable
 
@@ -142,24 +129,22 @@ def resolve_python_executable(explicit_exe: Optional[str] = None, auto_setup: bo
 
 
 def parse_args(args: Optional[list[str]] = None) -> argparse.Namespace:
-    """Parse and validate command-line arguments for combined deployment."""
-    default_model = os.environ.get("MDD_ASR_MODEL", "Qwen3-ASR-0.6B")
+    default_model = os.environ.get("PHONOSCORE_ASR_MODEL", "Qwen3-ASR-0.6B")
 
     parser = argparse.ArgumentParser(
-        description="Combined Local Deployment for mdd-service-de (ASR + Pronunciation)",
+        description="Run the PhonoScore ASR and pronunciation services together.",
     )
-    # Lifecycle action flags
     parser.add_argument(
         "--stop",
         action="store_true",
         default=False,
-        help="Stop the currently running background deployment",
+        help="stop the background deployment",
     )
     parser.add_argument(
         "--status",
         action="store_true",
         default=False,
-        help="Check health and readiness of running microservices",
+        help="show whether the services are up",
     )
     parser.add_argument(
         "--logs",
@@ -167,7 +152,7 @@ def parse_args(args: Optional[list[str]] = None) -> argparse.Namespace:
         dest="logs",
         action="store_true",
         default=False,
-        help="View or tail recent logs from the deployment",
+        help="follow the combined log",
     )
     parser.add_argument(
         "--detach",
@@ -175,69 +160,68 @@ def parse_args(args: Optional[list[str]] = None) -> argparse.Namespace:
         dest="detach",
         action="store_true",
         default=False,
-        help="Run deployment in background as a daemon process",
+        help="run in the background",
     )
 
-    # Server configuration
     parser.add_argument(
         "--host",
         type=str,
         default="0.0.0.0",
-        help="Host address to bind both microservices (default: 0.0.0.0)",
+        help="bind address (default: 0.0.0.0)",
     )
     parser.add_argument(
         "--asr-port",
         type=int,
         default=8001,
-        help="Port for Qwen3-ASR microservice (default: 8001)",
+        help="ASR service port (default: 8001)",
     )
     parser.add_argument(
         "--pronounce-port",
         type=int,
         default=8002,
-        help="Port for OpenPronounce microservice (default: 8002)",
+        help="pronunciation service and web UI port (default: 8002)",
     )
     parser.add_argument(
         "--model",
         type=str,
         default=default_model,
-        help=f"Model preset (Qwen3-ASR-0.6B, Qwen3-ASR-1.7B) or custom HF model ID / path (default: {default_model})",
+        help=f"Qwen3-ASR-0.6B, Qwen3-ASR-1.7B, a Hugging Face repo or a local path (default: {default_model})",
     )
     parser.add_argument(
         "--device",
         type=str,
         default="auto",
-        help="Device to use: auto (cuda -> mps -> cpu), cuda, mps, cpu (default: auto)",
+        help="auto, cuda, mps or cpu (default: auto)",
     )
     parser.add_argument(
         "--python",
         type=str,
         default=None,
-        help="Path to Python executable for child microservices (defaults to auto-detecting .venv or sys.executable)",
+        help="interpreter for the services (default: .venv, created if missing)",
     )
     parser.add_argument(
         "--no-auto-setup",
         action="store_true",
         default=False,
-        help="Disable automatic virtual environment creation and pip install",
+        help="do not create .venv or run pip install",
     )
     parser.add_argument(
         "--log-dir",
         type=str,
         default=None,
-        help="Directory to write log files (default: ./logs)",
+        help="log directory (default: ./logs)",
     )
     parser.add_argument(
         "--pid-file",
         type=str,
         default=None,
-        help="Path to PID file for background mode (default: ./.serve.pid)",
+        help="PID file for --detach (default: ./.serve.pid)",
     )
     parser.add_argument(
         "--internal-worker",
         action="store_true",
         default=False,
-        help=argparse.SUPPRESS,  # Internal flag used by --detach runner
+        help=argparse.SUPPRESS,  # set by --detach on the background process
     )
 
     parsed = parser.parse_args(args)
@@ -252,7 +236,7 @@ def build_commands(
     args: argparse.Namespace,
     python_exe: Optional[str] = None,
 ) -> tuple[list[str], list[str]]:
-    """Construct child command lists for ASR and Pronounce microservices."""
+    """Return the (asr, pronounce) command lines."""
     exe = python_exe or sys.executable
     asr_cmd = [
         exe,
@@ -282,7 +266,7 @@ def build_commands(
 
 
 def terminate_process(proc: subprocess.Popen, name: str, timeout: float = 5.0) -> None:
-    """Gracefully terminate a child process, falling back to kill if it hangs."""
+    """SIGTERM the process; SIGKILL it if it hasn't exited after timeout seconds."""
     if proc.poll() is not None:
         return
 
@@ -300,14 +284,13 @@ def terminate_process(proc: subprocess.Popen, name: str, timeout: float = 5.0) -
 
 
 def handle_stop(pid_file: Path) -> int:
-    """Stop the running background deployment."""
     pid = read_pid(pid_file)
     if not pid or not is_pid_running(pid):
         pid_file.unlink(missing_ok=True)
-        print("No active combined deployment found.")
+        print("PhonoScore is not running.")
         return 0
 
-    print(f"Stopping combined deployment (PID {pid})...")
+    print(f"Stopping PhonoScore (PID {pid})...")
     try:
         os.kill(pid, signal.SIGTERM)
     except ProcessLookupError:
@@ -329,12 +312,12 @@ def handle_stop(pid_file: Path) -> int:
             pass
 
     pid_file.unlink(missing_ok=True)
-    print("Combined deployment stopped.")
+    print("Stopped.")
     return 0
 
 
 def probe_health(url: str, timeout: float = 2.0) -> Optional[dict]:
-    """Probe microservice health check endpoint and return JSON response if successful."""
+    """GET a /health URL; return its JSON, or None if it isn't answering."""
     try:
         req = urllib.request.Request(url, headers={"User-Agent": "serve-status"})
         with urllib.request.urlopen(req, timeout=timeout) as resp:
@@ -345,48 +328,38 @@ def probe_health(url: str, timeout: float = 2.0) -> Optional[dict]:
     return None
 
 
+def local_url(host: str, port: int) -> str:
+    """URL for reaching a service bound to host from this machine."""
+    return f"http://{'127.0.0.1' if host in ('0.0.0.0', '') else host}:{port}"
+
+
 def handle_status(pid_file: Path, host: str, asr_port: int, pronounce_port: int, log_dir: Path) -> int:
-    """Inspect and display status of running microservices."""
     pid = read_pid(pid_file)
     running = pid is not None and is_pid_running(pid)
 
-    bind_host = "127.0.0.1" if host in ("0.0.0.0", "") else host
-    asr_health = probe_health(f"http://{bind_host}:{asr_port}/health")
-    pronounce_health = probe_health(f"http://{bind_host}:{pronounce_port}/health")
+    asr_health = probe_health(f"{local_url(host, asr_port)}/health")
+    pronounce_health = probe_health(f"{local_url(host, pronounce_port)}/health")
 
-    print("=" * 66)
-    print("           mdd-service-de Combined Deployment Status")
-    print("=" * 66)
-    if running:
-        print(f"Supervisor Process:   RUNNING (PID {pid})")
-    else:
-        print("Supervisor Process:   NOT RUNNING")
+    print(f"Supervisor:  {f'RUNNING (PID {pid})' if running else 'NOT RUNNING'}")
 
     if asr_health:
-        print(f"ASR Service:          UP (port {asr_port}, model: {asr_health.get('model', 'unknown')}, device: {asr_health.get('device', 'unknown')})")
-    elif running:
-        print(f"ASR Service:          STARTING / LOADING WEIGHTS (port {asr_port})")
+        print(f"ASR:         UP on port {asr_port} (model: {asr_health.get('model', 'unknown')}, device: {asr_health.get('device', 'unknown')})")
     else:
-        print(f"ASR Service:          STOPPED (port {asr_port})")
+        print(f"ASR:         {'STARTING' if running else 'STOPPED'} (port {asr_port})")
 
     if pronounce_health:
-        print(f"Pronounce Service:    UP (port {pronounce_port}, device: {pronounce_health.get('device', 'unknown')})")
-    elif running:
-        print(f"Pronounce Service:    STARTING / LOADING WEIGHTS (port {pronounce_port})")
+        print(f"Pronounce:   UP on port {pronounce_port} (device: {pronounce_health.get('device', 'unknown')})")
+        print(f"Web UI:      {local_url(host, pronounce_port)}")
     else:
-        print(f"Pronounce Service:    STOPPED (port {pronounce_port})")
+        print(f"Pronounce:   {'STARTING' if running else 'STOPPED'} (port {pronounce_port})")
 
     if log_dir.exists():
-        print(f"Log directory:        {log_dir}")
-        print(f"                      {log_dir / 'serve.log'} (combined)")
-        print(f"                      {log_dir / 'asr.log'}")
-        print(f"                      {log_dir / 'pronounce.log'}")
-    print("=" * 66)
+        print(f"Logs:        {log_dir}")
     return 0 if running else 1
 
 
 def handle_logs(log_file: Path, follow: bool = False, lines_count: int = 50) -> int:
-    """Display or tail deployment log file."""
+    """Print the last lines of log_file, then keep printing new lines if follow is set."""
     if not log_file.is_file():
         print(f"Log file not found: {log_file}")
         print("Start the deployment first with 'python serve.py'.")
@@ -414,12 +387,11 @@ def handle_logs(log_file: Path, follow: bool = False, lines_count: int = 50) -> 
 
 
 def spawn_detached(args: argparse.Namespace) -> int:
-    """Launch the combined runner in the background as a detached process."""
+    """Start run_combined in a new background session and record its PID."""
     pid_file = Path(args.pid_file).resolve() if args.pid_file else get_default_pid_file()
     existing_pid = read_pid(pid_file)
     if existing_pid and is_pid_running(existing_pid):
-        print(f"Combined deployment is already running (PID {existing_pid}).")
-        print("To stop it, run: python serve.py --stop")
+        print(f"PhonoScore is already running (PID {existing_pid}). Stop it with: python serve.py --stop")
         return 1
 
     log_dir = Path(args.log_dir).resolve() if args.log_dir else get_default_log_dir()
@@ -455,38 +427,27 @@ def spawn_detached(args: argparse.Namespace) -> int:
     time.sleep(0.6)
     ret = proc.poll()
     if ret is not None:
-        print(f"Error: Detached deployment failed to start (exit code {ret}).")
-        print(f"Check log for details: {serve_log}")
+        print(f"Failed to start (exit code {ret}). See {serve_log}")
         return ret
 
     pid_file.write_text(str(proc.pid))
-    print(f"Combined deployment started in background (PID {proc.pid}).")
-    print(f"  ASR Endpoint:       http://{args.host}:{args.asr_port} (model: {args.model}, device: {args.device})")
-    print(f"  Pronounce Endpoint: http://{args.host}:{args.pronounce_port} (device: {args.device})")
-    print(f"  Logs:               {serve_log}")
-    print(f"                      {log_dir / 'asr.log'}")
-    print(f"                      {log_dir / 'pronounce.log'}")
-    print()
-    print("Management commands:")
-    print("  Check status:       python serve.py --status")
-    print("  View logs:          python serve.py --logs (or -f to follow)")
-    print("  Stop deployment:    python serve.py --stop")
+    print(f"PhonoScore started in the background (PID {proc.pid}).")
+    print(f"  Web UI:  {local_url(args.host, args.pronounce_port)} (once --status shows UP)")
+    print(f"  Logs:    {serve_log}")
+    print("  Status:  python serve.py --status")
+    print("  Stop:    python serve.py --stop")
     return 0
 
 
 def run_combined(args: argparse.Namespace, poll_interval: float = 0.5) -> int:
-    """Launch and supervise both microservices until interrupted or a failure occurs."""
+    """Run both services until interrupted; if one exits, stop the other and return its code."""
     auto_setup = not getattr(args, "no_auto_setup", False)
     python_exe = resolve_python_executable(getattr(args, "python", None), auto_setup=auto_setup)
 
     if not check_dependencies(python_exe):
         logger.error(
-            "Python interpreter '%s' is missing required packages ('fastapi' or 'uvicorn').\n"
-            "  -> To set up the virtual environment automatically, run without --no-auto-setup:\n"
-            "     python serve.py\n"
-            "  -> Or activate and install manually:\n"
-            "     source .venv/bin/activate\n"
-            "     pip install -r requirements.txt",
+            "%s cannot import fastapi/uvicorn. Run without --no-auto-setup, or install manually:\n"
+            "  source .venv/bin/activate && pip install -r requirements.txt",
             python_exe,
         )
         return 1
@@ -495,7 +456,6 @@ def run_combined(args: argparse.Namespace, poll_interval: float = 0.5) -> int:
     log_dir.mkdir(parents=True, exist_ok=True)
 
     pid_file = Path(args.pid_file).resolve() if args.pid_file else get_default_pid_file()
-    # Write PID file if running as internal worker
     if getattr(args, "internal_worker", False):
         pid_file.write_text(str(os.getpid()))
 
@@ -509,11 +469,10 @@ def run_combined(args: argparse.Namespace, poll_interval: float = 0.5) -> int:
 
     asr_cmd, pronounce_cmd = build_commands(args, python_exe=python_exe)
 
-    logger.info("Starting combined local deployment...")
-    logger.info("  Python:             %s", python_exe)
-    logger.info("  ASR Endpoint:       http://%s:%d (model: %s, device: %s)", args.host, args.asr_port, args.model, args.device)
-    logger.info("  Pronounce Endpoint: http://%s:%d (device: %s)", args.host, args.pronounce_port, args.device)
-    logger.info("  Log directory:      %s", log_dir)
+    logger.info("Starting PhonoScore (python: %s)", python_exe)
+    logger.info("  ASR:        port %d (model: %s, device: %s)", args.asr_port, args.model, args.device)
+    logger.info("  Pronounce:  port %d (device: %s)", args.pronounce_port, args.device)
+    logger.info("  Logs:       %s", log_dir)
 
     child_env = os.environ.copy()
     child_env["PYTHONUNBUFFERED"] = "1"
@@ -572,7 +531,7 @@ def run_combined(args: argparse.Namespace, poll_interval: float = 0.5) -> int:
             return
         shutdown_initiated = True
         sig_name = signal.Signals(signum).name
-        logger.info("Received %s signal. Shutting down microservices...", sig_name)
+        logger.info("Received %s, stopping services...", sig_name)
         for name, proc in procs:
             terminate_process(proc, name)
         asr_log_f.close()
@@ -585,8 +544,15 @@ def run_combined(args: argparse.Namespace, poll_interval: float = 0.5) -> int:
     signal.signal(signal.SIGINT, handle_signal)
     signal.signal(signal.SIGTERM, handle_signal)
 
+    web_url = local_url(args.host, args.pronounce_port)
+    health_urls = [f"{local_url(args.host, port)}/health" for port in (args.asr_port, args.pronounce_port)]
+    ready = False
+
     try:
         while True:
+            if not ready and all(probe_health(url, timeout=0.5) for url in health_urls):
+                ready = True
+                logger.info("Ready. Open %s in your browser.", web_url)
             for name, proc in procs:
                 ret = proc.poll()
                 if ret is not None:
@@ -607,7 +573,6 @@ def run_combined(args: argparse.Namespace, poll_interval: float = 0.5) -> int:
 
 
 def main(args: Optional[list[str]] = None) -> int:
-    """Entry point dispatching CLI actions."""
     cli_args = parse_args(args)
     pid_file = Path(cli_args.pid_file).resolve() if cli_args.pid_file else get_default_pid_file()
     log_dir = Path(cli_args.log_dir).resolve() if cli_args.log_dir else get_default_log_dir()

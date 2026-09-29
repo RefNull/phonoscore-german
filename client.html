@@ -1,275 +1,254 @@
 <!DOCTYPE html>
-<html lang="de">
+<html lang="en">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>MDD Service DE — Speech Fluency & Pronunciation Tester</title>
+  <title>PhonoScore German</title>
+  <meta name="description" content="Score your German pronunciation: record a sentence and see which words and sounds were off, with expected and heard IPA.">
   <style>
     :root {
       --bg: #faf9f5; --card-bg: #ffffff; --card-border: #e8e6dc;
       --text: #1f1e1d; --text-muted: #6b6a64; --accent: #c96442; --accent-hover: #b4583a;
-      --success: #4d7a3a; --warning: #a8741a; --danger: #b53d2e; --subtle: #f3f1ea;
+      --success: #4d7a3a; --success-bg: #f1f6ed; --success-border: #cfdcc6;
+      --warning: #a8741a;
+      --danger: #b53d2e; --danger-bg: #fbf0ee; --danger-border: #ecc9c3;
+      --subtle: #f3f1ea;
       --mono: ui-monospace, SFMono-Regular, Menlo, monospace;
+      color-scheme: light dark;
+    }
+    @media (prefers-color-scheme: dark) {
+      :root {
+        --bg: #1f1e1d; --card-bg: #2a2927; --card-border: #3d3b37;
+        --text: #eceae4; --text-muted: #a3a19a; --accent: #d97757; --accent-hover: #e08a6d;
+        --success: #8fbf73; --success-bg: #26301f; --success-border: #3d5230;
+        --warning: #d9a441;
+        --danger: #e07a6a; --danger-bg: #3a2320; --danger-border: #5c3029;
+        --subtle: #34332f;
+      }
     }
     * { box-sizing: border-box; }
+    [hidden] { display: none !important; }
     body { margin: 0; background: var(--bg); color: var(--text); font: 15px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
     .container { max-width: 860px; margin: 0 auto; padding: 2rem 1rem 4rem; display: flex; flex-direction: column; gap: 1rem; }
-    header h1 { font: 500 1.6rem/1.2 ui-serif, Georgia, serif; margin: 0 0 0.25rem; display: flex; align-items: center; gap: 0.6rem; }
+    header { display: flex; justify-content: space-between; align-items: flex-start; gap: 1rem; flex-wrap: wrap; }
+    header h1 { font: 500 1.6rem/1.2 ui-serif, Georgia, serif; margin: 0 0 0.25rem; }
     header p { margin: 0; color: var(--text-muted); }
+    .status { display: flex; gap: 0.4rem; flex-wrap: wrap; }
     .card { background: var(--card-bg); border: 1px solid var(--card-border); border-radius: 10px; padding: 1.25rem; display: flex; flex-direction: column; gap: 1rem; }
     .card-title { display: flex; justify-content: space-between; align-items: center; gap: 1rem; flex-wrap: wrap; font-weight: 600; }
     .row { display: flex; gap: 0.75rem; flex-wrap: wrap; align-items: flex-end; }
     .form-group { flex: 1; min-width: 200px; display: flex; flex-direction: column; gap: 0.3rem; }
-    label { font-size: 0.8rem; color: var(--text-muted); }
-    input[type=text], textarea { font: inherit; color: var(--text); background: var(--card-bg); border: 1px solid var(--card-border); border-radius: 6px; padding: 0.5rem 0.65rem; width: 100%; }
-    input[type=text]:focus, textarea:focus { outline: none; border-color: var(--accent); }
-    textarea { min-height: 4.5rem; resize: vertical; }
+    label, .hint { font-size: 0.8rem; color: var(--text-muted); }
+    .hint { margin: 0; }
+    input[type=text], textarea, select { font: inherit; color: var(--text); background: var(--card-bg); border: 1px solid var(--card-border); border-radius: 6px; padding: 0.5rem 0.65rem; width: 100%; }
+    input[type=text]:focus, textarea:focus, select:focus { outline: none; border-color: var(--accent); }
+    textarea { min-height: 4.5rem; resize: vertical; font-size: 1.05rem; }
     button { font: inherit; font-weight: 500; cursor: pointer; border: 1px solid var(--accent); background: var(--accent); color: #fff; border-radius: 6px; padding: 0.5rem 1rem; }
     button:hover:not(:disabled) { background: var(--accent-hover); }
     button:disabled { opacity: 0.45; cursor: not-allowed; }
     button.secondary, .btn-group button { background: var(--card-bg); color: var(--text); border-color: var(--card-border); }
-    button.secondary:hover, .btn-group button:hover:not(.active) { background: var(--subtle); }
+    button.secondary:hover:not(:disabled), .btn-group button:hover:not(.active) { background: var(--subtle); }
+    button.mini { font-size: 0.78rem; padding: 0.2rem 0.55rem; }
     .btn-group { display: flex; }
     .btn-group button { border-radius: 0; font-size: 0.85rem; padding: 0.35rem 0.75rem; }
     .btn-group button:first-child { border-radius: 6px 0 0 6px; }
     .btn-group button:last-child { border-radius: 0 6px 6px 0; border-left: none; }
-    .btn-group button.active { background: var(--subtle); color: var(--text); font-weight: 600; }
+    .btn-group button.active { background: var(--subtle); font-weight: 600; }
     .badge { font-size: 0.75rem; font-weight: 500; padding: 0.15rem 0.55rem; border-radius: 999px; background: var(--subtle); color: var(--text-muted); border: 1px solid var(--card-border); white-space: nowrap; }
-    .badge.success { color: var(--success); border-color: #cfdcc6; background: #f1f6ed; }
-    .badge.danger { color: var(--danger); border-color: #ecc9c3; background: #fbf0ee; }
-    .presets-container { display: flex; flex-wrap: wrap; gap: 0.4rem; }
-    .preset-pill { font-size: 0.8rem; padding: 0.25rem 0.65rem; border: 1px solid var(--card-border); border-radius: 999px; cursor: pointer; color: var(--text-muted); }
-    .preset-pill:hover { border-color: var(--accent); color: var(--text); }
-    .alert { padding: 0.75rem 0.9rem; border-radius: 6px; font-size: 0.85rem; gap: 0.5rem; border: 1px solid var(--card-border); background: var(--subtle); }
-    .alert.error { color: var(--danger); border-color: #ecc9c3; background: #fbf0ee; }
+    .badge.success { color: var(--success); border-color: var(--success-border); background: var(--success-bg); }
+    .badge.danger { color: var(--danger); border-color: var(--danger-border); background: var(--danger-bg); }
+    .presets { display: flex; flex-wrap: wrap; gap: 0.4rem; }
+    .preset { font: inherit; font-size: 0.8rem; font-weight: 400; padding: 0.25rem 0.65rem; border: 1px solid var(--card-border); border-radius: 999px; background: none; color: var(--text-muted); }
+    .preset:hover:not(:disabled) { background: none; border-color: var(--accent); color: var(--text); }
+    .alert { padding: 0.75rem 0.9rem; border-radius: 6px; font-size: 0.85rem; border: 1px solid var(--card-border); background: var(--subtle); }
+    .alert.error { color: var(--danger); border-color: var(--danger-border); background: var(--danger-bg); }
     .record-box { display: flex; flex-direction: column; align-items: center; gap: 0.5rem; padding: 1.25rem; border: 1px dashed var(--card-border); border-radius: 8px; }
     .record-box.recording { border-color: var(--danger); }
     .record-btn { min-width: 7rem; }
     .record-btn.recording { background: var(--danger); border-color: var(--danger); }
     .record-timer { font: 500 1.1rem var(--mono); color: var(--text-muted); }
-    .record-timer.recording { color: var(--danger); }
+    .recording .record-timer { color: var(--danger); }
     audio { width: 100%; max-width: 420px; }
-    .score-container { display: flex; align-items: center; gap: 1.25rem; }
-    .score-circle { display: flex; flex-direction: column; align-items: center; min-width: 5.5rem; }
+    .score { display: flex; align-items: center; gap: 1.25rem; }
+    .score-value { display: flex; flex-direction: column; align-items: center; min-width: 5.5rem; }
     #scoreValue { font: 500 2.4rem/1 ui-serif, Georgia, serif; }
-    .score-circle span { font-size: 0.7rem; color: var(--text-muted); letter-spacing: 0.04em; }
-    .score-circle.green #scoreValue { color: var(--success); }
-    .score-circle.yellow #scoreValue { color: var(--warning); }
-    .score-circle.red #scoreValue { color: var(--danger); }
+    .score-value span { font-size: 0.7rem; color: var(--text-muted); letter-spacing: 0.04em; }
     .score-details { flex: 1; display: flex; flex-direction: column; gap: 0.4rem; }
-    .progress-bar-bg { height: 6px; background: var(--subtle); border-radius: 3px; overflow: hidden; }
-    .progress-bar-fill { height: 100%; width: 0; background: var(--text-muted); transition: width 0.4s; }
-    .progress-bar-fill.green { background: var(--success); }
-    .progress-bar-fill.yellow { background: var(--warning); }
-    .progress-bar-fill.red { background: var(--danger); }
-    .comparison-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 0.75rem; }
-    .comparison-card { border: 1px solid var(--card-border); border-radius: 8px; padding: 0.75rem; background: var(--bg); }
-    .comparison-card .label { font-size: 0.72rem; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.04em; margin-bottom: 0.3rem; }
+    .bar { height: 6px; background: var(--subtle); border-radius: 3px; overflow: hidden; }
+    .bar-fill { height: 100%; width: 0; background: var(--text-muted); transition: width 0.4s; }
+    .green #scoreValue { color: var(--success); } .bar-fill.green { background: var(--success); }
+    .yellow #scoreValue { color: var(--warning); } .bar-fill.yellow { background: var(--warning); }
+    .red #scoreValue { color: var(--danger); } .bar-fill.red { background: var(--danger); }
+    .comparison { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 0.75rem; }
+    .comparison > div { border: 1px solid var(--card-border); border-radius: 8px; padding: 0.75rem; background: var(--bg); }
+    .comparison .label { font-size: 0.72rem; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.04em; margin-bottom: 0.3rem; }
     table { width: 100%; border-collapse: collapse; font-size: 0.88rem; }
     th { text-align: left; font-weight: 500; color: var(--text-muted); font-size: 0.78rem; border-bottom: 1px solid var(--card-border); padding: 0.4rem 0.5rem; }
     td { border-bottom: 1px solid var(--subtle); padding: 0.5rem; }
+    td.word { font-weight: 600; }
+    td.heard { color: var(--danger); }
     .ipa, code, pre { font-family: var(--mono); }
     code { background: var(--subtle); padding: 0 0.25rem; border-radius: 3px; font-size: 0.85em; }
-    summary { cursor: pointer; color: var(--text-muted); font-size: 0.85rem; }
+    details > summary { cursor: pointer; color: var(--text-muted); font-size: 0.9rem; }
+    details.card > summary { font-weight: 600; color: var(--text); }
+    details.card:not([open]) { gap: 0; }
     pre { background: var(--subtle); border: 1px solid var(--card-border); border-radius: 6px; padding: 0.75rem; font-size: 0.78rem; overflow: auto; max-height: 360px; }
-    select { font: inherit; color: var(--text); background: var(--card-bg); border: 1px solid var(--card-border); border-radius: 6px; padding: 0.45rem 0.5rem; }
-    button.mini { font-size: 0.78rem; padding: 0.2rem 0.55rem; }
-    .tts-row { display: flex; gap: 0.5rem; align-items: center; flex-wrap: wrap; }
-    @media (max-width: 560px) { .score-container { flex-direction: column; align-items: stretch; } }
+    .inline { display: flex; gap: 0.5rem; align-items: center; flex-wrap: wrap; }
+    body:not(.tts-on) .tts-only { display: none !important; }
+    @media (max-width: 560px) { .score { flex-direction: column; align-items: stretch; } }
   </style>
 </head>
 <body>
   <div class="container">
     <header>
-      <h1>
-        <span>MDD Service DE</span>
-        <span class="badge">Network Test Client</span>
-      </h1>
-      <p>Test German speech fluency (Qwen3-ASR) and phoneme-level pronunciation diagnosis (OpenPronounce) over LAN.</p>
+      <div>
+        <h1>PhonoScore German</h1>
+        <p>Say a German sentence and see which sounds were off.</p>
+      </div>
+      <div class="status" title="Server status. Configure under Settings.">
+        <span id="badgeAsr" class="badge">ASR: checking…</span>
+        <span id="badgePronounce" class="badge">Scoring: checking…</span>
+      </div>
     </header>
 
-    <!-- Configuration Card -->
-    <div class="card">
+    <section class="card">
+      <div class="card-title">1. Sentence</div>
+      <textarea id="expectedText" lang="de" aria-label="German sentence to say">Ich habe morgen einen Termin beim Arzt.</textarea>
+      <div class="presets">
+        <button type="button" class="preset">Ich habe morgen einen Termin beim Arzt.</button>
+        <button type="button" class="preset">Guten Tag, wie geht es Ihnen heute?</button>
+        <button type="button" class="preset">Übung macht den Meister, aber Deutsch ist nicht leicht.</button>
+        <button type="button" class="preset">Zwei Flaschen Wasser und ein Brötchen, bitte.</button>
+      </div>
+      <div class="inline tts-only">
+        <button type="button" class="secondary" onclick="speak(expectedText.value, 1, this)">Listen</button>
+        <button type="button" class="secondary" onclick="speak(expectedText.value, SLOW_RATE, this)">Listen slowly</button>
+        <span id="ttsStatus" class="hint"></span>
+      </div>
+    </section>
+
+    <section class="card">
       <div class="card-title">
-        <span>Backend Endpoint Configuration</span>
-        <div class="btn-group">
-          <button id="btnModeDirect" class="active" onclick="setMode('direct')">Direct (serve.py)</button>
-          <button id="btnModeRouter" onclick="setMode('router')">llama-swap Router</button>
-        </div>
+        <span>2. Speak</span>
+        <span id="audioBadge" class="badge">No audio</span>
       </div>
 
-      <div class="row">
-        <div class="form-group" style="max-width: 250px;">
-          <label for="serverHost">Server Host / LAN IP</label>
-          <input type="text" id="serverHost" placeholder="e.g. 192.168.1.50 or localhost" value="localhost">
-        </div>
-        <div class="form-group">
-          <label for="asrUrl">ASR Endpoint (Fluency)</label>
-          <input type="text" id="asrUrl" value="http://localhost:8001/v1/audio/transcriptions">
-        </div>
-        <div class="form-group">
-          <label for="pronounceUrl">Pronounce Endpoint (Phonetics)</label>
-          <input type="text" id="pronounceUrl" value="http://localhost:8002/assess">
-        </div>
-      </div>
-
-      <div class="row">
-        <div class="form-group">
-          <label for="ttsUrl">TTS Endpoint (Chatterbox)</label>
-          <input type="text" id="ttsUrl" value="http://localhost:8004/tts">
-        </div>
-        <div class="form-group" style="max-width: 220px;">
-          <label for="ttsVoice">Voice</label>
-          <select id="ttsVoice"><option value="">(load voices)</option></select>
-        </div>
-      </div>
-
-      <div class="row" style="justify-content: space-between;">
-        <button type="button" class="secondary" onclick="pingEndpoints()">
-          Check Connection
-        </button>
-        <div class="row" id="connectionBadges">
-          <span id="badgeAsr" class="badge">ASR: Unchecked</span>
-          <span id="badgePronounce" class="badge">Pronounce: Unchecked</span>
-        </div>
-      </div>
-    </div>
-
-    <!-- Target German Sentence Card -->
-    <div class="card">
-      <div class="card-title">
-        <span>Target German Sentence</span>
-      </div>
-      <div class="form-group">
-        <textarea id="expectedText" placeholder="Enter expected German sentence to evaluate...">Ich habe morgen einen Termin beim Arzt.</textarea>
-      </div>
-      <div class="tts-row">
-        <button type="button" class="secondary" onclick="speak(document.getElementById('expectedText').value, 1, this)">Listen</button>
-        <button type="button" class="secondary" onclick="speak(document.getElementById('expectedText').value, SLOW_RATE, this)">Listen slowly</button>
-        <span id="ttsStatus" style="font-size: 0.8rem; color: var(--text-muted);"></span>
-      </div>
-      <div>
-        <label style="display:block; margin-bottom: 0.35rem;">Quick Sample Sentences:</label>
-        <div class="presets-container">
-          <div class="preset-pill" onclick="setSample('Ich habe morgen einen Termin beim Arzt.')">Ich habe morgen einen Termin beim Arzt.</div>
-          <div class="preset-pill" onclick="setSample('Guten Tag, wie geht es Ihnen heute?')">Guten Tag, wie geht es Ihnen heute?</div>
-          <div class="preset-pill" onclick="setSample('Übung macht den Meister, aber Deutsch ist nicht leicht.')">Übung macht den Meister...</div>
-          <div class="preset-pill" onclick="setSample('Zwei Flaschen Wasser und ein Brötchen, bitte.')">Zwei Flaschen Wasser und ein Brötchen, bitte.</div>
-        </div>
-      </div>
-    </div>
-
-    <!-- Audio Input Card -->
-    <div class="card">
-      <div class="card-title">
-        <span>Audio Recording & Input</span>
-        <span id="audioStatusBadge" class="badge">No Audio</span>
-      </div>
-
-      <!-- Insecure context alert if mic unavailable -->
-      <div id="insecureAlert" class="alert info" style="display: none;">
-        <div>
-          <strong>Microphone Security Notice:</strong> Browsers require a secure context (<code>https://</code> or <code>http://localhost</code>) for microphone access. If accessing via an unencrypted LAN IP (e.g. <code>http://192.168.x.x</code>), either open this file locally via <code>file://</code> or use the <strong>File Upload</strong> button below.
-        </div>
+      <div id="insecureAlert" class="alert" hidden>
+        The microphone only works over <code>https://</code> or <code>http://localhost</code>.
+        Upload a file below, or tunnel the port and open this page on localhost
+        (<code>ssh -L 8002:localhost:8002 &lt;server&gt;</code>).
       </div>
 
       <div class="record-box" id="recordBox">
         <button id="recordBtn" class="record-btn" type="button" onclick="toggleRecording()">Record</button>
         <div class="record-timer" id="recordTimer">00:00</div>
-        <p id="recordInstruction" style="font-size: 0.85rem; color: var(--text-muted);">Record German speech, or upload a file below.</p>
-        <audio id="audioPreview" controls style="display: none;"></audio>
+        <p id="recordHint" class="hint">Press Record, read the sentence aloud, then press Stop.</p>
+        <audio id="audioPreview" controls hidden></audio>
       </div>
 
-      <div class="row" style="align-items: center; justify-content: space-between; border-top: 1px solid var(--card-border); padding-top: 1rem;">
+      <div class="row" style="justify-content: space-between; align-items: center;">
         <div class="form-group" style="max-width: 320px;">
-          <label for="audioFileInput">Or Upload Audio File (.wav, .ogg, .webm, .mp3):</label>
-          <input type="file" id="audioFileInput" accept="audio/*" onchange="handleFileUpload(event)">
+          <label for="audioFile">Or upload a recording (.wav, .ogg, .webm, .mp3)</label>
+          <input type="file" id="audioFile" accept="audio/*" onchange="handleFileUpload(event)">
         </div>
-        <button id="btnEvaluate" type="button" disabled onclick="evaluateSpeech()" style="padding: 0.75rem 1.5rem;">
-          Assess Pronunciation
-        </button>
+        <button id="btnAssess" type="button" disabled onclick="assess()" style="padding: 0.75rem 1.5rem;">Score it</button>
       </div>
 
-      <div id="evalAlert" class="alert error" style="display: none;"></div>
-    </div>
+      <div id="evalAlert" class="alert error" hidden></div>
+    </section>
 
-    <!-- Results Card -->
-    <div class="card" id="resultsCard" style="display: none;">
-      <div class="card-title">
-        <span>Assessment Results</span>
-        <span id="resultSummaryBadge" class="badge success">Evaluated</span>
-      </div>
+    <section class="card" id="resultsCard" hidden>
+      <div class="card-title">Results</div>
 
-      <!-- Score Bar -->
-      <div class="score-container">
-        <div class="score-circle" id="scoreCircle">
+      <div class="score">
+        <div class="score-value" id="scoreBox">
           <div id="scoreValue">--</div>
           <span>SCORE / 100</span>
         </div>
         <div class="score-details">
           <div style="display: flex; justify-content: space-between; font-size: 0.85rem;">
-            <span>Overall Pronunciation Quality</span>
-            <span id="perValue" class="badge">PER: --%</span>
+            <span>Pronunciation</span>
+            <span id="perValue" class="badge" title="Phoneme error rate">PER: --</span>
           </div>
-          <div class="progress-bar-bg">
-            <div id="scoreProgressBar" class="progress-bar-fill"></div>
-          </div>
-          <p id="scoreFeedback" style="font-size: 0.82rem; color: var(--text-muted);"></p>
+          <div class="bar"><div id="scoreBar" class="bar-fill"></div></div>
+          <p id="scoreFeedback" class="hint"></p>
         </div>
       </div>
 
-      <!-- 3-Way Comparison -->
-      <div class="comparison-grid">
-        <div class="comparison-card">
-          <div class="label">Target Reference</div>
-          <div class="value" id="compTarget">--</div>
-        </div>
-        <div class="comparison-card">
-          <div class="label">Fluency Transcription (Qwen3-ASR)</div>
-          <div class="value" id="compAsr">--</div>
-        </div>
-        <div class="comparison-card">
-          <div class="label">Acoustic Transcription (OpenPronounce)</div>
-          <div class="value" id="compAcoustic">--</div>
-        </div>
+      <div class="comparison">
+        <div><div class="label">Expected</div><div id="compTarget" lang="de">--</div></div>
+        <div><div class="label">Heard (Qwen3-ASR)</div><div id="compAsr" lang="de">--</div></div>
+        <div><div class="label">Heard (Wav2Vec2)</div><div id="compAcoustic" lang="de">--</div></div>
       </div>
 
-      <!-- Phonetic Errors Table -->
-      <div id="errorsSection">
-        <div style="font-weight: 600; font-size: 0.9rem; margin-bottom: 0.5rem; color: var(--text);">
-          Flagged words
-        </div>
-        <div style="overflow-x: auto;">
-          <table id="errorsTable">
+      <div>
+        <div style="font-weight: 600; font-size: 0.9rem; margin-bottom: 0.5rem;">Mispronounced words</div>
+        <div id="errorsWrap" style="overflow-x: auto;">
+          <table>
             <thead>
-              <tr>
-                <th>Word</th>
-                <th>Expected (IPA)</th>
-                <th>Heard (IPA)</th>
-                <th>Confidence</th>
-                <th>Diagnosis</th>
-                <th>Reference</th>
-              </tr>
+              <tr><th>Word</th><th>Expected</th><th>Heard</th><th>Confidence</th><th class="tts-only">Listen</th></tr>
             </thead>
-            <tbody id="errorsTableBody">
-            </tbody>
+            <tbody id="errorsBody"></tbody>
           </table>
         </div>
-        <div id="noErrorsBanner" class="alert info" style="display: none; margin-top: 0.5rem;">
-          No phonetic errors detected.
-        </div>
+        <p id="noErrors" class="hint" hidden>None.</p>
       </div>
 
-      <!-- Raw JSON collapsible -->
-      <details style="margin-top: 0.5rem;">
-        <summary>View Raw JSON Response</summary>
-        <pre id="rawJsonResponse">{}</pre>
+      <details>
+        <summary>Raw JSON</summary>
+        <pre id="rawJson">{}</pre>
       </details>
-    </div>
+    </section>
+
+    <details class="card" id="settings">
+      <summary>Settings</summary>
+      <div class="row">
+        <div class="form-group">
+          <label>Connection</label>
+          <div class="btn-group">
+            <button id="btnModeDirect" type="button" class="active" onclick="setMode('direct')">Direct (serve.py)</button>
+            <button id="btnModeRouter" type="button" onclick="setMode('router')">llama-swap</button>
+          </div>
+        </div>
+        <div class="form-group">
+          <label for="serverHost">Server host or IP</label>
+          <input type="text" id="serverHost" placeholder="localhost or 192.168.1.50" value="localhost">
+        </div>
+      </div>
+      <div class="row">
+        <div class="form-group">
+          <label for="asrUrl">ASR endpoint</label>
+          <input type="text" id="asrUrl">
+        </div>
+        <div class="form-group">
+          <label for="pronounceUrl">Scoring endpoint</label>
+          <input type="text" id="pronounceUrl">
+        </div>
+      </div>
+      <div class="row">
+        <div class="form-group">
+          <label for="ttsUrl">Reference speech, optional (Chatterbox TTS Server)</label>
+          <input type="text" id="ttsUrl">
+        </div>
+        <div class="form-group" style="max-width: 220px;">
+          <label for="ttsVoice">Voice</label>
+          <select id="ttsVoice"><option value="">(not connected)</option></select>
+        </div>
+      </div>
+      <div>
+        <button type="button" class="secondary" onclick="refreshConnections()">Check connection</button>
+      </div>
+    </details>
   </div>
 
   <script>
-    // State
+    const $ = id => document.getElementById(id);
+    const expectedText = $('expectedText');
+    const store = {
+      get: k => { try { return localStorage.getItem('phonoscore_' + k); } catch { return null; } },
+      set: (k, v) => { try { localStorage.setItem('phonoscore_' + k, v); } catch {} },
+    };
+
     let currentMode = 'direct';
     let isRecording = false;
     let audioBlob = null;
@@ -277,104 +256,112 @@
     let audioStream = null;
     let audioChunks = [];
     let timerInterval = null;
-    let secondsElapsed = 0;
 
-    // Load saved settings
     window.addEventListener('DOMContentLoaded', () => {
-      // Check secure context for mic
-      if (!window.isSecureContext && (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia)) {
-        document.getElementById('insecureAlert').style.display = 'flex';
+      if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+        $('insecureAlert').hidden = false;
       }
 
-      const savedHost = localStorage.getItem('mdd_server_host');
-      const savedMode = localStorage.getItem('mdd_mode');
-      if (savedHost) {
-        document.getElementById('serverHost').value = savedHost;
-      } else if (window.location.hostname && window.location.hostname !== "") {
-        document.getElementById('serverHost').value = window.location.hostname;
-      }
+      const savedHost = store.get('host');
+      if (savedHost) $('serverHost').value = savedHost;
+      else if (location.hostname) $('serverHost').value = location.hostname;
+      setMode(store.get('mode') || 'direct', false);
 
-      if (savedMode) {
-        setMode(savedMode, false);
-      } else {
+      $('serverHost').addEventListener('change', () => {
+        store.set('host', $('serverHost').value.trim());
         updateEndpoints();
-      }
+        refreshConnections();
+      });
+      $('ttsUrl').addEventListener('change', loadVoices);
+      $('ttsVoice').addEventListener('change', e => store.set('tts_voice', e.target.value));
+      document.querySelectorAll('.preset').forEach(b => b.addEventListener('click', () => { expectedText.value = b.textContent; }));
 
-      document.getElementById('serverHost').addEventListener('input', () => {
-        localStorage.setItem('mdd_server_host', document.getElementById('serverHost').value.trim());
-        updateEndpoints();
-      });
-
-      document.getElementById('asrUrl').addEventListener('input', () => {
-        localStorage.setItem('mdd_asr_url', document.getElementById('asrUrl').value.trim());
-      });
-
-      document.getElementById('pronounceUrl').addEventListener('input', () => {
-        localStorage.setItem('mdd_pronounce_url', document.getElementById('pronounceUrl').value.trim());
-      });
-
-      document.getElementById('serverHost').addEventListener('change', loadVoices);
-      const ttsInput = document.getElementById('ttsUrl');
-      ttsInput.addEventListener('change', () => {
-        localStorage.setItem('mdd_tts_url', ttsInput.value.trim());
-        loadVoices();
-      });
-      document.getElementById('ttsVoice').addEventListener('change', (e) => {
-        localStorage.setItem('mdd_tts_voice', e.target.value);
-      });
       loadVoices();
     });
 
+    function host() {
+      return $('serverHost').value.trim() || 'localhost';
+    }
+
     function setMode(mode, save = true) {
       currentMode = mode;
-      document.getElementById('btnModeDirect').className = mode === 'direct' ? 'active' : '';
-      document.getElementById('btnModeRouter').className = mode === 'router' ? 'active' : '';
-      if (save) localStorage.setItem('mdd_mode', mode);
+      $('btnModeDirect').classList.toggle('active', mode === 'direct');
+      $('btnModeRouter').classList.toggle('active', mode === 'router');
+      if (save) store.set('mode', mode);
       updateEndpoints();
+      pingEndpoints();
     }
 
     function updateEndpoints() {
-      const host = document.getElementById('serverHost').value.trim() || 'localhost';
+      const h = host();
       if (currentMode === 'direct') {
-        document.getElementById('asrUrl').value = `http://${host}:8001/v1/audio/transcriptions`;
-        document.getElementById('pronounceUrl').value = `http://${host}:8002/assess`;
+        $('asrUrl').value = `http://${h}:8001/v1/audio/transcriptions`;
+        $('pronounceUrl').value = `http://${h}:8002/assess`;
       } else {
-        document.getElementById('asrUrl').value = `http://${host}:8080/v1/audio/transcriptions`;
-        document.getElementById('pronounceUrl').value = `http://${host}:8080/upstream/openpronounce/assess`;
+        $('asrUrl').value = `http://${h}:8080/v1/audio/transcriptions`;
+        $('pronounceUrl').value = `http://${h}:8080/upstream/openpronounce/assess`;
       }
-      // Chatterbox is not behind llama-swap: always host:8004 in both modes
-      document.getElementById('ttsUrl').value = `http://${host}:8004/tts`;
-      localStorage.setItem('mdd_asr_url', document.getElementById('asrUrl').value);
-      localStorage.setItem('mdd_pronounce_url', document.getElementById('pronounceUrl').value);
+      // Chatterbox runs outside llama-swap, so it is on :8004 in both modes
+      $('ttsUrl').value = `http://${h}:8004/tts`;
     }
 
-    // ---- Reference speech (Chatterbox TTS) ----
-    // Synthesized once per (voice, text) at normal speed; "slow" is browser playback
-    // at SLOW_RATE with pitch preserved, so both speeds are the same take.
+    function refreshConnections() {
+      pingEndpoints();
+      loadVoices();
+    }
+
+    function setBadge(el, label, state, detail) {
+      el.className = 'badge' + (state === 'up' ? ' success' : state === 'down' ? ' danger' : '');
+      el.textContent = `${label}: ${detail}`;
+    }
+
+    async function pingOne(url, el, label, detailKey) {
+      setBadge(el, label, 'checking', 'checking…');
+      try {
+        const res = await fetch(url, { signal: AbortSignal.timeout(3000) });
+        if (!res.ok) return setBadge(el, label, 'down', `error ${res.status}`);
+        const data = await res.json();
+        setBadge(el, label, 'up', data[detailKey] || 'up');
+      } catch {
+        setBadge(el, label, 'down', 'offline');
+      }
+    }
+
+    function pingEndpoints() {
+      const h = host();
+      const direct = currentMode === 'direct';
+      pingOne(direct ? `http://${h}:8001/health` : `http://${h}:8080/health`, $('badgeAsr'), 'ASR', 'model');
+      pingOne(direct ? `http://${h}:8002/health` : `http://${h}:8080/health`, $('badgePronounce'), 'Scoring', 'device');
+    }
+
+    // ---- Reference speech (Chatterbox TTS Server) ----
+    // Each (voice, text) is synthesized once at normal speed; "slow" is the same audio
+    // played at SLOW_RATE with pitch preserved.
     const SLOW_RATE = 0.6;
     const ttsCache = new Map();
     let ttsAudio = null;
 
     function ttsBase() {
-      return document.getElementById('ttsUrl').value.trim().replace(/\/tts\/?$/, '');
+      return $('ttsUrl').value.trim().replace(/\/tts\/?$/, '');
     }
 
     async function loadVoices() {
-      const select = document.getElementById('ttsVoice');
+      const select = $('ttsVoice');
       try {
-        const res = await fetch(`${ttsBase()}/get_predefined_voices`);
+        const res = await fetch(`${ttsBase()}/get_predefined_voices`, { signal: AbortSignal.timeout(3000) });
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
         const voices = await res.json();
-        const saved = localStorage.getItem('mdd_tts_voice');
-        // German reference voices are uploaded as DE-<Name>.wav; list them first under that name
+        // German voices are uploaded as DE-<Name>.wav; list them first
         const isDe = v => v.filename.startsWith('DE-');
         voices.sort((x, y) => isDe(y) - isDe(x));
         select.innerHTML = '';
         voices.forEach(v => select.add(new Option(isDe(v) ? v.filename.replace(/\.\w+$/, '') : v.display_name, v.filename)));
-        const pick = [saved, 'DE-Thorsten.wav'].find(f => f && voices.some(v => v.filename === f));
+        const pick = [store.get('tts_voice'), 'DE-Thorsten.wav'].find(f => f && voices.some(v => v.filename === f));
         if (pick) select.value = pick;
-      } catch (err) {
-        select.innerHTML = '<option value="">(unavailable)</option>';
+        document.body.classList.toggle('tts-on', voices.length > 0);
+      } catch {
+        select.innerHTML = '<option value="">(not connected)</option>';
+        document.body.classList.remove('tts-on');
       }
     }
 
@@ -387,14 +374,14 @@
     async function speak(text, rate, btn) {
       text = (text || '').trim();
       if (!text) return;
-      const status = document.getElementById('ttsStatus');
-      const voice = document.getElementById('ttsVoice').value;
+      const status = $('ttsStatus');
+      const voice = $('ttsVoice').value;
       const key = `${voice}|${text}`;
       const label = btn ? btn.textContent : '';
       try {
         if (!ttsCache.has(key)) {
           if (btn) { btn.disabled = true; btn.textContent = '…'; }
-          const res = await fetch(document.getElementById('ttsUrl').value.trim(), {
+          const res = await fetch($('ttsUrl').value.trim(), {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
@@ -412,131 +399,55 @@
         await ttsAudio.play();
         status.textContent = '';
       } catch (err) {
-        status.textContent = `TTS error: ${err.message}`;
+        status.textContent = `Speech failed: ${err.message}`;
       } finally {
         if (btn) { btn.disabled = false; btn.textContent = label; }
       }
     }
 
-    function setSample(text) {
-      document.getElementById('expectedText').value = text;
+    // ---- Recording ----
+    function showError(html) {
+      $('evalAlert').innerHTML = html;
+      $('evalAlert').hidden = false;
     }
 
-    async function pingEndpoints() {
-      const host = document.getElementById('serverHost').value.trim() || 'localhost';
-      const badgeAsr = document.getElementById('badgeAsr');
-      const badgePronounce = document.getElementById('badgePronounce');
-
-      badgeAsr.className = 'badge';
-      badgeAsr.textContent = 'ASR: Checking...';
-      badgePronounce.className = 'badge';
-      badgePronounce.textContent = 'Pronounce: Checking...';
-
-      // Check ASR
-      try {
-        const asrHealthUrl = currentMode === 'direct'
-          ? `http://${host}:8001/health`
-          : `http://${host}:8080/health`;
-        const res = await fetch(asrHealthUrl, { method: 'GET', signal: AbortSignal.timeout(3000) });
-        if (res.ok) {
-          const data = await res.json();
-          badgeAsr.className = 'badge success';
-          badgeAsr.textContent = `ASR: UP (${data.model || 'ok'})`;
-        } else {
-          badgeAsr.className = 'badge danger';
-          badgeAsr.textContent = `ASR: Error (${res.status})`;
-        }
-      } catch (err) {
-        badgeAsr.className = 'badge danger';
-        badgeAsr.textContent = 'ASR: Offline / Refused';
-      }
-
-      // Check Pronounce
-      try {
-        const pHealthUrl = currentMode === 'direct'
-          ? `http://${host}:8002/health`
-          : `http://${host}:8080/health`;
-        const res = await fetch(pHealthUrl, { method: 'GET', signal: AbortSignal.timeout(3000) });
-        if (res.ok) {
-          const data = await res.json();
-          badgePronounce.className = 'badge success';
-          badgePronounce.textContent = `Pronounce: UP (${data.device || 'ok'})`;
-        } else {
-          badgePronounce.className = 'badge danger';
-          badgePronounce.textContent = `Pronounce: Error (${res.status})`;
-        }
-      } catch (err) {
-        badgePronounce.className = 'badge danger';
-        badgePronounce.textContent = 'Pronounce: Offline / Refused';
-      }
-    }
-
-    // Audio Recording
-    async function toggleRecording() {
-      if (isRecording) {
-        stopRecording();
-      } else {
-        startRecording();
-      }
+    function toggleRecording() {
+      if (isRecording) stopRecording();
+      else startRecording();
     }
 
     async function startRecording() {
-      const btn = document.getElementById('recordBtn');
-      const box = document.getElementById('recordBox');
-      const timer = document.getElementById('recordTimer');
-      const inst = document.getElementById('recordInstruction');
-      const evalAlert = document.getElementById('evalAlert');
-      evalAlert.style.display = 'none';
-
+      $('evalAlert').hidden = true;
       if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
-        evalAlert.textContent = 'Microphone access is not available in this browser context (requires https:// or localhost). Please use the file upload option below.';
-        evalAlert.style.display = 'flex';
+        showError('The microphone is not available on this page. Upload a file instead.');
         return;
       }
 
       try {
         audioStream = await navigator.mediaDevices.getUserMedia({ audio: { channelCount: 1, sampleRate: 16000 } });
         audioChunks = [];
-        
-        // Pick best supported MIME type
-        let mimeType = 'audio/webm';
-        if (MediaRecorder.isTypeSupported('audio/webm;codecs=opus')) {
-          mimeType = 'audio/webm;codecs=opus';
-        } else if (MediaRecorder.isTypeSupported('audio/ogg;codecs=opus')) {
-          mimeType = 'audio/ogg;codecs=opus';
-        } else if (MediaRecorder.isTypeSupported('audio/mp4')) {
-          mimeType = 'audio/mp4';
-        }
+        const mimeType = ['audio/webm;codecs=opus', 'audio/ogg;codecs=opus', 'audio/mp4']
+          .find(t => MediaRecorder.isTypeSupported(t)) || 'audio/webm';
 
         mediaRecorder = new MediaRecorder(audioStream, { mimeType });
-        mediaRecorder.ondataavailable = (e) => {
-          if (e.data && e.data.size > 0) audioChunks.push(e.data);
-        };
-
-        mediaRecorder.onstop = () => {
-          const rawBlob = new Blob(audioChunks, { type: mediaRecorder.mimeType });
-          convertBlobToWav(rawBlob);
-        };
-
+        mediaRecorder.ondataavailable = e => { if (e.data && e.data.size > 0) audioChunks.push(e.data); };
+        mediaRecorder.onstop = () => convertBlobToWav(new Blob(audioChunks, { type: mediaRecorder.mimeType }));
         mediaRecorder.start(100);
-        isRecording = true;
-        btn.textContent = 'Stop';
-        btn.classList.add('recording');
-        box.classList.add('recording');
-        timer.classList.add('recording');
-        inst.textContent = 'Recording in progress... Click stop button when finished speaking';
 
-        secondsElapsed = 0;
-        timer.textContent = '00:00';
+        isRecording = true;
+        $('recordBtn').textContent = 'Stop';
+        $('recordBtn').classList.add('recording');
+        $('recordBox').classList.add('recording');
+        $('recordHint').textContent = 'Recording… press Stop when you are done.';
+
+        let seconds = 0;
+        $('recordTimer').textContent = '00:00';
         timerInterval = setInterval(() => {
-          secondsElapsed++;
-          const m = String(Math.floor(secondsElapsed / 60)).padStart(2, '0');
-          const s = String(secondsElapsed % 60).padStart(2, '0');
-          timer.textContent = `${m}:${s}`;
+          seconds++;
+          $('recordTimer').textContent = `${String(Math.floor(seconds / 60)).padStart(2, '0')}:${String(seconds % 60).padStart(2, '0')}`;
         }, 1000);
       } catch (err) {
-        evalAlert.textContent = `Microphone capture failed: ${err.message}`;
-        evalAlert.style.display = 'flex';
+        showError(`Could not start the microphone: ${escapeHtml(err.message)}`);
       }
     }
 
@@ -544,87 +455,59 @@
       if (!isRecording) return;
       isRecording = false;
       clearInterval(timerInterval);
+      if (mediaRecorder && mediaRecorder.state !== 'inactive') mediaRecorder.stop();
+      if (audioStream) audioStream.getTracks().forEach(t => t.stop());
 
-      if (mediaRecorder && mediaRecorder.state !== 'inactive') {
-        mediaRecorder.stop();
-      }
-      if (audioStream) {
-        audioStream.getTracks().forEach(track => track.stop());
-      }
-
-      const btn = document.getElementById('recordBtn');
-      const box = document.getElementById('recordBox');
-      const timer = document.getElementById('recordTimer');
-      const inst = document.getElementById('recordInstruction');
-
-      btn.textContent = 'Record';
-      btn.classList.remove('recording');
-      box.classList.remove('recording');
-      timer.classList.remove('recording');
-      inst.textContent = 'Audio recorded. Click "Assess Pronunciation" to evaluate.';
+      $('recordBtn').textContent = 'Record again';
+      $('recordBtn').classList.remove('recording');
+      $('recordBox').classList.remove('recording');
+      $('recordHint').textContent = 'Recorded. Press "Score it".';
     }
 
-    // Convert any audio blob to 16kHz mono WAV using Web Audio API
+    function useAudio(blob, badgeText) {
+      audioBlob = blob;
+      $('audioPreview').src = URL.createObjectURL(blob);
+      $('audioPreview').hidden = false;
+      $('audioBadge').className = 'badge success';
+      $('audioBadge').textContent = badgeText;
+      $('btnAssess').disabled = false;
+    }
+
+    // Re-encode the recording as 16 kHz mono WAV, which both services accept
     async function convertBlobToWav(blob) {
       try {
-        const arrayBuffer = await blob.arrayBuffer();
         const audioCtx = new (window.AudioContext || window.webkitAudioContext)({ sampleRate: 16000 });
-        const audioBuffer = await audioCtx.decodeAudioData(arrayBuffer);
-        
-        // Extract channel 0
-        const pcmData = audioBuffer.getChannelData(0);
-        const wavBuffer = encodeWAV(pcmData, audioBuffer.sampleRate);
-        audioBlob = new Blob([wavBuffer], { type: 'audio/wav' });
-
-        const preview = document.getElementById('audioPreview');
-        preview.src = URL.createObjectURL(audioBlob);
-        preview.style.display = 'block';
-
-        document.getElementById('audioStatusBadge').className = 'badge success';
-        document.getElementById('audioStatusBadge').textContent = `Recorded (${(audioBlob.size / 1024).toFixed(1)} KB WAV)`;
-        document.getElementById('btnEvaluate').disabled = false;
+        const audioBuffer = await audioCtx.decodeAudioData(await blob.arrayBuffer());
+        const wav = new Blob([encodeWAV(audioBuffer.getChannelData(0), audioBuffer.sampleRate)], { type: 'audio/wav' });
         audioCtx.close();
-      } catch (err) {
-        // Fallback: use raw blob directly if decode fails
-        audioBlob = blob;
-        const preview = document.getElementById('audioPreview');
-        preview.src = URL.createObjectURL(blob);
-        preview.style.display = 'block';
-        document.getElementById('audioStatusBadge').className = 'badge success';
-        document.getElementById('audioStatusBadge').textContent = `Recorded (${(blob.size / 1024).toFixed(1)} KB)`;
-        document.getElementById('btnEvaluate').disabled = false;
+        useAudio(wav, `Recorded (${(wav.size / 1024).toFixed(0)} KB)`);
+      } catch {
+        useAudio(blob, `Recorded (${(blob.size / 1024).toFixed(0)} KB)`);
       }
     }
 
-    // 16-bit PCM WAV Encoder helper
     function encodeWAV(samples, sampleRate) {
       const buffer = new ArrayBuffer(44 + samples.length * 2);
       const view = new DataView(buffer);
-
-      function writeString(offset, string) {
-        for (let i = 0; i < string.length; i++) {
-          view.setUint8(offset + i, string.charCodeAt(i));
-        }
-      }
+      const writeString = (offset, s) => { for (let i = 0; i < s.length; i++) view.setUint8(offset + i, s.charCodeAt(i)); };
 
       writeString(0, 'RIFF');
       view.setUint32(4, 36 + samples.length * 2, true);
       writeString(8, 'WAVE');
       writeString(12, 'fmt ');
       view.setUint32(16, 16, true);
-      view.setUint16(20, 1, true); // PCM format
-      view.setUint16(22, 1, true); // Mono
+      view.setUint16(20, 1, true); // PCM
+      view.setUint16(22, 1, true); // mono
       view.setUint32(24, sampleRate, true);
-      view.setUint32(28, sampleRate * 2, true); // Byte rate
-      view.setUint16(32, 2, true); // Block align
-      view.setUint16(34, 16, true); // Bits per sample
+      view.setUint32(28, sampleRate * 2, true); // byte rate
+      view.setUint16(32, 2, true); // block align
+      view.setUint16(34, 16, true); // bits per sample
       writeString(36, 'data');
       view.setUint32(40, samples.length * 2, true);
 
-      // Write PCM samples (Float32 -> Int16)
       let offset = 44;
       for (let i = 0; i < samples.length; i++, offset += 2) {
-        let s = Math.max(-1, Math.min(1, samples[i]));
+        const s = Math.max(-1, Math.min(1, samples[i]));
         view.setInt16(offset, s < 0 ? s * 0x8000 : s * 0x7FFF, true);
       }
       return buffer;
@@ -633,188 +516,116 @@
     function handleFileUpload(event) {
       const file = event.target.files[0];
       if (!file) return;
-
-      audioBlob = file;
-      const preview = document.getElementById('audioPreview');
-      preview.src = URL.createObjectURL(file);
-      preview.style.display = 'block';
-
-      document.getElementById('audioStatusBadge').className = 'badge success';
-      document.getElementById('audioStatusBadge').textContent = `File: ${file.name} (${(file.size / 1024).toFixed(1)} KB)`;
-      document.getElementById('recordInstruction').textContent = `Loaded file: ${file.name}`;
-      document.getElementById('btnEvaluate').disabled = false;
+      useAudio(file, `${file.name} (${(file.size / 1024).toFixed(0)} KB)`);
+      $('recordHint').textContent = `Using ${file.name}.`;
     }
 
-    // Evaluation Execution
-    async function evaluateSpeech() {
+    // ---- Scoring ----
+    function escapeHtml(s) {
+      return String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+    }
+
+    async function postForm(url, fields) {
+      const form = new FormData();
+      form.append('file', audioBlob, audioBlob.name || 'recording.wav');
+      Object.entries(fields).forEach(([k, v]) => form.append(k, v));
+      const res = await fetch(url, { method: 'POST', body: form });
+      if (!res.ok) throw new Error(`HTTP ${res.status}: ${await res.text()}`);
+      return res.json();
+    }
+
+    async function assess() {
       if (!audioBlob) return;
-      const expectedText = document.getElementById('expectedText').value.trim();
-      if (!expectedText) {
-        alert('Please enter a target German sentence.');
+      const text = expectedText.value.trim();
+      if (!text) {
+        showError('Enter a German sentence first.');
         return;
       }
+      const btn = $('btnAssess');
+      $('evalAlert').hidden = true;
+      btn.disabled = true;
+      btn.textContent = 'Scoring…';
 
-      const asrUrl = document.getElementById('asrUrl').value.trim();
-      const pronounceUrl = document.getElementById('pronounceUrl').value.trim();
-      const evalAlert = document.getElementById('evalAlert');
-      const btnEval = document.getElementById('btnEvaluate');
-      evalAlert.style.display = 'none';
+      const asrFields = { language: 'de' };
+      if (currentMode === 'router') asrFields.model = 'qwen3-asr';
+      const [asr, pronounce] = await Promise.allSettled([
+        postForm($('asrUrl').value.trim(), asrFields),
+        postForm($('pronounceUrl').value.trim(), { expected_text: text, lang: 'de' }),
+      ]);
 
-      btnEval.disabled = true;
-      btnEval.innerHTML = 'Evaluating…';
+      btn.disabled = false;
+      btn.textContent = 'Score it';
 
-      let asrResult = null;
-      let pronounceResult = null;
-      let asrError = null;
-      let pronounceError = null;
-
-      const filename = audioBlob.name || 'recording.wav';
-
-      // Step 1: Query ASR
-      try {
-        const formDataAsr = new FormData();
-        formDataAsr.append('file', audioBlob, filename);
-        formDataAsr.append('language', 'de');
-        if (currentMode === 'router') {
-          formDataAsr.append('model', 'qwen3-asr');
-        }
-
-        const resAsr = await fetch(asrUrl, {
-          method: 'POST',
-          body: formDataAsr,
-        });
-
-        if (!resAsr.ok) {
-          throw new Error(`HTTP ${resAsr.status}: ${await resAsr.text()}`);
-        }
-        asrResult = await resAsr.json();
-      } catch (err) {
-        asrError = err.message;
+      const failures = [['ASR', asr], ['Scoring', pronounce]].filter(([, r]) => r.status === 'rejected');
+      if (failures.length) {
+        showError(failures.map(([name, r]) => `<strong>${name} failed:</strong> ${escapeHtml(r.reason.message)}`).join('<br>') +
+          '<br><small>Check that the services are running and the host under Settings is correct. The first request after starting downloads the models and can take several minutes.</small>');
       }
-
-      // Step 2: Query Pronounce
-      try {
-        const formDataPronounce = new FormData();
-        formDataPronounce.append('file', audioBlob, filename);
-        formDataPronounce.append('expected_text', expectedText);
-        formDataPronounce.append('lang', 'de');
-
-        const resPronounce = await fetch(pronounceUrl, {
-          method: 'POST',
-          body: formDataPronounce,
-        });
-
-        if (!resPronounce.ok) {
-          throw new Error(`HTTP ${resPronounce.status}: ${await resPronounce.text()}`);
-        }
-        pronounceResult = await resPronounce.json();
-      } catch (err) {
-        pronounceError = err.message;
+      if (asr.status === 'fulfilled' || pronounce.status === 'fulfilled') {
+        displayResults(text, asr.value || null, pronounce.value || null);
       }
+    }
 
-      btnEval.disabled = false;
-      btnEval.innerHTML = 'Assess Pronunciation';
-
-      if (asrError || pronounceError) {
-        evalAlert.innerHTML = `<strong>Evaluation Error:</strong><br>` +
-          (asrError ? `• ASR Error: ${asrError}<br>` : '') +
-          (pronounceError ? `• Pronounce Error: ${pronounceError}<br>` : '') +
-          `<small style="margin-top:0.4rem; display:block;">Check that the servers are running, the IP/ports are correct, and CORS is enabled.</small>`;
-        evalAlert.style.display = 'block';
-      }
-
-      if (asrResult || pronounceResult) {
-        displayResults(expectedText, asrResult, pronounceResult);
-      }
+    function cell(tr, text, className) {
+      const td = tr.insertCell();
+      td.textContent = text;
+      if (className) td.className = className;
+      return td;
     }
 
     function displayResults(targetText, asrData, pronounceData) {
-      const resultsCard = document.getElementById('resultsCard');
-      resultsCard.style.display = 'flex';
+      const card = $('resultsCard');
+      card.hidden = false;
 
-      // Target text
-      document.getElementById('compTarget').textContent = `"${targetText}"`;
+      $('compTarget').textContent = targetText;
+      $('compAsr').textContent = asrData ? (asrData.text ?? JSON.stringify(asrData)) : 'unavailable';
+      $('compAcoustic').textContent = pronounceData?.transcription || 'unavailable';
 
-      // ASR text
-      const asrText = asrData && asrData.text ? asrData.text : (asrData ? JSON.stringify(asrData) : 'Failed / Unavailable');
-      document.getElementById('compAsr').textContent = asrText;
+      const score = typeof pronounceData?.score === 'number' ? pronounceData.score : null;
+      const per = typeof pronounceData?.phoneme_error_rate === 'number' ? `${(pronounceData.phoneme_error_rate * 100).toFixed(1)}%` : '--';
+      const level = score === null ? '' : score >= 80 ? 'green' : score >= 60 ? 'yellow' : 'red';
 
-      // Acoustic text
-      const acousticText = pronounceData && pronounceData.transcription ? pronounceData.transcription : 'Failed / Unavailable';
-      document.getElementById('compAcoustic').textContent = acousticText;
+      $('scoreValue').textContent = score === null ? '--' : Math.round(score);
+      $('scoreBar').style.width = `${Math.min(100, Math.max(0, score || 0))}%`;
+      $('scoreBar').className = `bar-fill ${level}`;
+      $('scoreBox').className = `score-value ${level}`;
+      $('perValue').textContent = `PER: ${per}`;
+      $('scoreFeedback').textContent = {
+        green: 'Close to the expected pronunciation.',
+        yellow: 'Some sounds were off. See the words below.',
+        red: 'Many sounds were off. See the words below.',
+      }[level] || 'Scoring failed.';
 
-      // Score
-      const score = pronounceData && typeof pronounceData.score === 'number' ? pronounceData.score : 0;
-      const per = pronounceData && typeof pronounceData.phoneme_error_rate === 'number' ? (pronounceData.phoneme_error_rate * 100).toFixed(1) : '--';
-      
-      const scoreCircle = document.getElementById('scoreCircle');
-      const scoreValue = document.getElementById('scoreValue');
-      const scoreBar = document.getElementById('scoreProgressBar');
-      const perValue = document.getElementById('perValue');
-      const feedback = document.getElementById('scoreFeedback');
-
-      scoreValue.textContent = Math.round(score);
-      scoreBar.style.width = `${Math.min(100, Math.max(0, score))}%`;
-      perValue.textContent = `PER: ${per}%`;
-
-      scoreCircle.className = 'score-circle';
-      scoreBar.className = 'progress-bar-fill';
-
-      if (score >= 80) {
-        scoreCircle.classList.add('green');
-        scoreBar.classList.add('green');
-        feedback.textContent = 'Few phonetic deviations.';
-      } else if (score >= 60) {
-        scoreCircle.classList.add('yellow');
-        scoreBar.classList.add('yellow');
-        feedback.textContent = 'Some phonetic deviations. See flagged words.';
-      } else {
-        scoreCircle.classList.add('red');
-        scoreBar.classList.add('red');
-        feedback.textContent = 'Many phonetic deviations. See flagged words.';
-      }
-
-      // Phonetic errors table
-      const tbody = document.getElementById('errorsTableBody');
+      const tbody = $('errorsBody');
       tbody.innerHTML = '';
-      const errors = (pronounceData && pronounceData.errors) ? pronounceData.errors : [];
-      const noErrorsBanner = document.getElementById('noErrorsBanner');
+      const errors = pronounceData?.errors || [];
+      $('errorsWrap').hidden = errors.length === 0;
+      $('noErrors').hidden = errors.length > 0 || !pronounceData;
 
-      if (errors.length === 0) {
-        noErrorsBanner.style.display = 'flex';
-      } else {
-        noErrorsBanner.style.display = 'none';
-        errors.forEach(err => {
-          const tr = document.createElement('tr');
-          const conf = typeof err.confidence === 'number' ? (err.confidence * 100).toFixed(0) + '%' : '--';
-          tr.innerHTML = `
-            <td style="font-weight:600;">${err.word || '--'}</td>
-            <td class="ipa">/${err.expected_ipa || '--'}/</td>
-            <td class="ipa" style="color:var(--danger);">/${err.actual_ipa || '--'}/</td>
-            <td>${conf}</td>
-            <td><span class="badge danger">Mispronounced</span></td>
-            <td class="tts-row"></td>
-          `;
-          const word = originalCase(err.word || '', targetText);
-          const cell = tr.lastElementChild;
+      errors.forEach(err => {
+        const tr = tbody.insertRow();
+        cell(tr, err.word || '--', 'word');
+        cell(tr, `/${err.expected_ipa || '–'}/`, 'ipa');
+        cell(tr, `/${err.actual_ipa || '–'}/`, 'ipa heard');
+        // 0 means OpenPronounce ran without its phone recognizer and reported no confidence
+        cell(tr, err.confidence ? `${Math.round(err.confidence * 100)}%` : '–');
+        const listen = cell(tr, '', 'tts-only');
+        const word = originalCase(err.word || '', targetText);
+        if (word) {
           [['Play', 1], ['Slow', SLOW_RATE]].forEach(([label, rate]) => {
             const b = document.createElement('button');
-            b.type = 'button'; b.className = 'secondary mini'; b.textContent = label;
+            b.type = 'button';
+            b.className = 'secondary mini';
+            b.textContent = label;
             b.onclick = () => speak(word, rate, b);
-            if (word) cell.appendChild(b);
+            listen.appendChild(b);
+            listen.append(' ');
           });
-          tbody.appendChild(tr);
-        });
-      }
+        }
+      });
 
-      // Raw JSON
-      document.getElementById('rawJsonResponse').textContent = JSON.stringify({
-        asr: asrData,
-        pronounce: pronounceData
-      }, null, 2);
-
-      // Scroll to results smoothly
-      resultsCard.scrollIntoView({ behavior: 'smooth' });
+      $('rawJson').textContent = JSON.stringify({ asr: asrData, pronounce: pronounceData }, null, 2);
+      card.scrollIntoView({ behavior: 'smooth' });
     }
   </script>
 </body>

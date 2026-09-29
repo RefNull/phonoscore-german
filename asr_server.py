@@ -1,20 +1,7 @@
-"""
-Qwen3-ASR Fluency Microservice.
+"""Qwen3-ASR speech-to-text service with an OpenAI-compatible /v1/audio/transcriptions endpoint.
 
-Provides an OpenAI-compatible speech-to-text API (POST /v1/audio/transcriptions)
-and health check endpoint (GET /health) wrapping Qwen3-ASR.
-
-Documentation Sources:
-- https://huggingface.co/Qwen/Qwen3-ASR-0.6B-hf
-- https://github.com/QwenLM/Qwen3-ASR
-
-ARCHITECTURAL NOTE:
-DO NOT use AutoModelForSpeechSeq2Seq because qwen3_asr is an audio-conditioned
-multimodal architecture (Qwen3ASRForConditionalGeneration).
-DO NOT use transformers.pipeline("automatic-speech-recognition") either: it cannot force
-a language for this model (generate_kwargs={"language": ...} is Whisper-only and raises).
-Load AutoProcessor + Qwen3ASRForConditionalGeneration and force the language through
-processor.apply_transcription_request(audio, language=...).
+Uses AutoProcessor + Qwen3ASRForConditionalGeneration directly. Neither AutoModelForSpeechSeq2Seq
+nor the ASR pipeline works here: the pipeline cannot force a language for this model.
 """
 
 import argparse
@@ -39,17 +26,17 @@ MODEL_PRESETS = {
 
 
 def resolve_model_id(model_name: str) -> str:
-    """Resolve a model preset alias or return the custom model ID/path directly."""
+    """Map a preset alias to its Hugging Face repo; pass anything else through."""
     stripped = model_name.strip()
     return MODEL_PRESETS.get(stripped.lower(), stripped)
 
 
-MODEL_ID = resolve_model_id(os.environ.get("MDD_ASR_MODEL", "Qwen3-ASR-0.6B"))
+MODEL_ID = resolve_model_id(os.environ.get("PHONOSCORE_ASR_MODEL", "Qwen3-ASR-0.6B"))
 _transcriber = None
 
 
 def resolve_device_and_dtype(device_name: str = "auto") -> tuple[str, torch.dtype]:
-    """Resolve device and torch dtype based on environment and requested device."""
+    """Pick device and dtype; "auto" tries cuda, then mps, then cpu."""
     if device_name == "auto":
         return (
             ("cuda", torch.bfloat16)
@@ -89,11 +76,7 @@ def get_transcriber():
     return _transcriber
 
 
-app = FastAPI(
-    title="Qwen3-ASR Fluency Service",
-    description="FastAPI microservice wrapping Qwen3-ASR for German speech fluency transcription",
-    version="1.0.0",
-)
+app = FastAPI(title="PhonoScore ASR", description="German speech transcription (Qwen3-ASR)", version="1.0.0")
 
 app.add_middleware(
     CORSMiddleware,
@@ -106,7 +89,6 @@ app.add_middleware(
 
 @app.get("/health")
 async def health():
-    """Health check endpoint."""
     return {"status": "ok", "service": "qwen3-asr", "model": MODEL_ID, "device": device}
 
 
@@ -116,7 +98,6 @@ async def transcribe(
     language: Optional[str] = Form("de"),
     model: Optional[str] = Form(None),
 ):
-    """OpenAI-compatible audio transcription endpoint."""
     content = await file.read()
     if not content:
         raise HTTPException(status_code=400, detail="Uploaded audio file is empty.")
@@ -137,28 +118,27 @@ async def transcribe(
 
 
 def parse_args(args: Optional[list[str]] = None) -> argparse.Namespace:
-    """Parse command-line arguments for the ASR server."""
-    default_model = os.environ.get("MDD_ASR_MODEL", "Qwen3-ASR-0.6B")
-    parser = argparse.ArgumentParser(description="Run Qwen3-ASR FastAPI Microservice")
-    parser.add_argument("--host", type=str, default="0.0.0.0", help="Host address to bind (default: 0.0.0.0)")
-    parser.add_argument("--port", type=int, default=8001, help="Port to bind (default: 8001)")
+    default_model = os.environ.get("PHONOSCORE_ASR_MODEL", "Qwen3-ASR-0.6B")
+    parser = argparse.ArgumentParser(description="PhonoScore ASR service (Qwen3-ASR)")
+    parser.add_argument("--host", type=str, default="0.0.0.0", help="bind address (default: 0.0.0.0)")
+    parser.add_argument("--port", type=int, default=8001, help="port (default: 8001)")
     parser.add_argument(
         "--device",
         type=str,
         default="auto",
-        help="Device to use: auto (cuda -> mps -> cpu), cuda, mps, cpu (default: auto)",
+        help="auto, cuda, mps or cpu (default: auto)",
     )
     parser.add_argument(
         "--model",
         type=str,
         default=None,
-        help=f"Model preset alias or Hugging Face model ID (default: {default_model})",
+        help=f"preset, Hugging Face repo or local path (default: {default_model})",
     )
     parser.add_argument(
         "--model-id",
         type=str,
         default=None,
-        help="Alias for --model",
+        help=argparse.SUPPRESS,
     )
     parsed = parser.parse_args(args)
     chosen_model = parsed.model or parsed.model_id or default_model

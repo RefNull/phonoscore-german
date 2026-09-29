@@ -103,6 +103,14 @@ def client():
         yield tc
 
 
+def test_root_serves_web_ui(client):
+    """GET / should return the web UI."""
+    response = client.get("/")
+    assert response.status_code == 200
+    assert response.headers["content-type"].startswith("text/html")
+    assert "<title>PhonoScore" in response.text
+
+
 def test_health_endpoint(client):
     """GET /health should return 200 OK and expected service metadata."""
     response = client.get("/health")

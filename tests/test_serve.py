@@ -77,8 +77,8 @@ def test_parse_args_port_collision():
 
 
 def test_parse_args_env_model(monkeypatch):
-    """Verify that MDD_ASR_MODEL env var sets the default model."""
-    monkeypatch.setenv("MDD_ASR_MODEL", "Qwen3-ASR-1.7B")
+    """Verify that PHONOSCORE_ASR_MODEL env var sets the default model."""
+    monkeypatch.setenv("PHONOSCORE_ASR_MODEL", "Qwen3-ASR-1.7B")
     args = parse_args([])
     assert args.model == "Qwen3-ASR-1.7B"
 
@@ -148,10 +148,11 @@ def test_terminate_process_timeout_fallback_to_kill():
     mock_proc.kill.assert_called_once()
 
 
+@patch("serve.probe_health", return_value=None)
 @patch("serve.check_dependencies", return_value=True)
 @patch("serve.subprocess.Popen")
 @patch("serve.signal.signal")
-def test_run_combined_process_exit_supervision(mock_signal, mock_popen, mock_check_deps):
+def test_run_combined_process_exit_supervision(mock_signal, mock_popen, mock_check_deps, mock_probe, tmp_path):
     """Verify run_combined terminates the sibling process if one exits unexpectedly."""
     proc1 = MagicMock()
     proc1.pid = 101
@@ -164,12 +165,34 @@ def test_run_combined_process_exit_supervision(mock_signal, mock_popen, mock_che
 
     mock_popen.side_effect = [proc1, proc2]
 
-    args = parse_args([])
+    args = parse_args(["--log-dir", str(tmp_path)])
     exit_code = run_combined(args, poll_interval=0.01)
 
     assert exit_code == 1
     # Check that sibling proc1 was terminated
     proc1.terminate.assert_called_once()
+
+
+@patch("serve.check_dependencies", return_value=True)
+@patch("serve.subprocess.Popen")
+@patch("serve.signal.signal")
+def test_run_combined_logs_ready_once(mock_signal, mock_popen, mock_check_deps, tmp_path, caplog):
+    """The web UI URL is logged once, after both health checks pass."""
+    asr_proc = MagicMock(pid=201)
+    pronounce_proc = MagicMock(pid=202)
+    asr_proc.poll.return_value = None
+    # Keep running for a few polls, then exit so run_combined returns
+    pronounce_proc.poll.side_effect = [None, None, None, None, 3]
+    mock_popen.side_effect = [asr_proc, pronounce_proc]
+    health = [None, {"status": "ok"}, {"status": "ok"}, {"status": "ok"}, {"status": "ok"}]
+
+    args = parse_args(["--log-dir", str(tmp_path)])
+    with patch("serve.probe_health", side_effect=lambda url, timeout: health.pop(0) if health else {"status": "ok"}), \
+         caplog.at_level("INFO", logger="serve"):
+        assert run_combined(args, poll_interval=0.01) == 3
+
+    ready = [r.getMessage() for r in caplog.records if r.getMessage().startswith("Ready")]
+    assert ready == ["Ready. Open http://127.0.0.1:8002 in your browser."]
 
 
 def test_parse_args_python():
@@ -275,7 +298,7 @@ def test_handle_stop_not_running(tmp_path, capsys):
     ret = handle_stop(pid_file)
     assert ret == 0
     captured = capsys.readouterr()
-    assert "No active combined deployment found." in captured.out
+    assert "PhonoScore is not running." in captured.out
 
     # Case 2: PID file exists but process is dead
     pid_file.write_text("999999\n")
@@ -351,9 +374,10 @@ def test_handle_status(tmp_path, capsys):
         ret = handle_status(pid_file, "0.0.0.0", 8001, 8002, log_dir)
         assert ret == 0
         captured = capsys.readouterr()
-        assert "Supervisor Process:   RUNNING (PID 54321)" in captured.out
-        assert "ASR Service:          UP" in captured.out
-        assert "Pronounce Service:    UP" in captured.out
+        assert "Supervisor:  RUNNING (PID 54321)" in captured.out
+        assert "ASR:         UP" in captured.out
+        assert "Pronounce:   UP" in captured.out
+        assert "Web UI:      http://127.0.0.1:8002" in captured.out
 
     # Case 2: Not running
     pid_file.unlink(missing_ok=True)
@@ -361,9 +385,9 @@ def test_handle_status(tmp_path, capsys):
         ret = handle_status(pid_file, "0.0.0.0", 8001, 8002, log_dir)
         assert ret == 1
         captured = capsys.readouterr()
-        assert "Supervisor Process:   NOT RUNNING" in captured.out
-        assert "ASR Service:          STOPPED" in captured.out
-        assert "Pronounce Service:    STOPPED" in captured.out
+        assert "Supervisor:  NOT RUNNING" in captured.out
+        assert "ASR:         STOPPED" in captured.out
+        assert "Pronounce:   STOPPED" in captured.out
 
 
 def test_handle_logs(tmp_path, capsys):
@@ -405,7 +429,7 @@ def test_spawn_detached(tmp_path, capsys):
         assert ret == 0
         assert pid_file.read_text().strip() == "9988"
         captured = capsys.readouterr()
-        assert "Combined deployment started in background (PID 9988)." in captured.out
+        assert "PhonoScore started in the background (PID 9988)." in captured.out
 
     # Case 3: Process immediately exits with error code
     pid_file.unlink(missing_ok=True)
