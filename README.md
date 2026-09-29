@@ -51,8 +51,8 @@ Browsers only allow the microphone on `https://` or `localhost`. For a server on
 ### CLI
 
 ```bash
-python cli.py --text "Ich habe morgen einen Termin beim Arzt."    # record from the microphone
-python cli.py --text "Guten Tag." --audio-file sample.wav          # score a file
+.venv/bin/python cli.py --text "Ich habe morgen einen Termin beim Arzt."    # record from the microphone
+.venv/bin/python cli.py --text "Guten Tag." --audio-file sample.wav          # score a file
 ```
 
 | Flag | Default | |
@@ -134,11 +134,11 @@ Set it with `--model` or the `PHONOSCORE_ASR_MODEL` environment variable. Weight
 
 ### llama-swap
 
-To load models on demand, use the included [`llama-swap.yaml`](llama-swap.yaml):
+To load models on demand, run llama-swap from this directory with `.venv` activated, using the included [`llama-swap.yaml`](llama-swap.yaml):
 
 ```bash
 llama-swap --config llama-swap.yaml --port 8080
-python cli.py --router
+.venv/bin/python cli.py --router
 ```
 
 In the web app, choose **llama-swap** under Settings. See the [llama-swap README](https://github.com/mostlygeek/llama-swap) for how it works.
@@ -160,7 +160,7 @@ PhonoScore supports German only for now. These parts are German-specific:
 ## Development
 
 ```bash
-pip install -r requirements.txt
+pip install -r requirements-dev.txt
 pytest
 ```
 

@@ -1,5 +1,5 @@
 """
-Unit and integration tests for OpenPronounce FastAPI microservice (pronounce_server.py).
+Tests for pronounce_server.py.
 """
 
 import io
@@ -221,15 +221,6 @@ def test_assess_empty_expected_text(client, synthetic_wav_bytes):
     res_ws = client.post("/assess", files=files, data={"expected_text": "   \t \n "})
     assert res_ws.status_code == 422
     assert "expected_text must not be empty" in str(res_ws.json()["detail"])
-
-
-def test_assess_uninitialized_assessor(client, monkeypatch):
-    """Calling /assess when openpronounce is None should return 503 Service Unavailable."""
-    monkeypatch.setattr("pronounce_server.openpronounce", None)
-    files = {"file": ("test.wav", make_synthetic_wav(), "audio/wav")}
-    response = client.post("/assess", files=files, data={"expected_text": "Hallo"})
-    assert response.status_code == 503
-    assert "not initialized" in response.json()["detail"].lower()
 
 
 def test_assess_exception_unlinks_tempfile(client, monkeypatch, synthetic_wav_bytes):

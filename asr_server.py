@@ -8,6 +8,7 @@ import argparse
 import asyncio
 import logging
 import os
+import threading
 from typing import Optional
 
 from fastapi import FastAPI, File, Form, HTTPException, UploadFile
@@ -33,29 +34,26 @@ def resolve_model_id(model_name: str) -> str:
 
 MODEL_ID = resolve_model_id(os.environ.get("PHONOSCORE_ASR_MODEL", "Qwen3-ASR-0.6B"))
 _transcriber = None
+_load_lock = threading.Lock()
 
 
 def resolve_device_and_dtype(device_name: str = "auto") -> tuple[str, torch.dtype]:
     """Pick device and dtype; "auto" tries cuda, then mps, then cpu."""
-    if device_name == "auto":
-        return (
-            ("cuda", torch.bfloat16)
-            if torch.cuda.is_available()
-            else (("mps", torch.bfloat16) if torch.backends.mps.is_available() else ("cpu", torch.float32))
-        )
     dev = device_name.lower().strip()
-    return (dev, torch.bfloat16) if dev.startswith(("cuda", "mps")) else (dev, torch.float32)
+    if dev == "auto":
+        dev = "cuda" if torch.cuda.is_available() else "mps" if torch.backends.mps.is_available() else "cpu"
+    return dev, torch.bfloat16 if dev.startswith(("cuda", "mps")) else torch.float32
 
 
 device, dtype = resolve_device_and_dtype()
 
 
 def get_transcriber():
-    """Load Qwen3-ASR once; return a callable (audio_bytes, language) -> text, or None."""
+    """Load Qwen3-ASR on first use; return a callable (audio_bytes, language) -> text."""
     global _transcriber
-    if _transcriber is None:
-        if os.environ.get("SKIP_MODEL_LOAD", "").lower() in ("1", "true", "yes"):
-            return None
+    with _load_lock:
+        if _transcriber is not None:
+            return _transcriber
         from transformers import AutoProcessor, Qwen3ASRForConditionalGeneration
         from transformers.pipelines.audio_utils import ffmpeg_read
 
@@ -73,7 +71,7 @@ def get_transcriber():
             return processor.decode(new_tokens, return_format="transcription_only")
 
         _transcriber = run
-    return _transcriber
+        return _transcriber
 
 
 app = FastAPI(title="PhonoScore ASR", description="German speech transcription (Qwen3-ASR)", version="1.0.0")
@@ -102,16 +100,11 @@ async def transcribe(
     if not content:
         raise HTTPException(status_code=400, detail="Uploaded audio file is empty.")
 
-    run = get_transcriber()
-    if run is None:
-        raise HTTPException(
-            status_code=503,
-            detail="ASR model is not initialized or is still loading.",
-        )
-
+    language = language.strip() if language and language.strip() else None
     try:
-        text = await asyncio.to_thread(run, content, language.strip() if language and language.strip() else None)
-        return {"text": text}
+        # Both run in a worker thread: the first call downloads and loads the model
+        run = await asyncio.to_thread(get_transcriber)
+        return {"text": await asyncio.to_thread(run, content, language)}
     except Exception as exc:
         logger.error("ASR transcription error: %s", exc, exc_info=True)
         raise HTTPException(status_code=500, detail=f"Transcription failed: {str(exc)}")
@@ -120,30 +113,12 @@ async def transcribe(
 def parse_args(args: Optional[list[str]] = None) -> argparse.Namespace:
     default_model = os.environ.get("PHONOSCORE_ASR_MODEL", "Qwen3-ASR-0.6B")
     parser = argparse.ArgumentParser(description="PhonoScore ASR service (Qwen3-ASR)")
-    parser.add_argument("--host", type=str, default="0.0.0.0", help="bind address (default: 0.0.0.0)")
+    parser.add_argument("--host", default="0.0.0.0", help="bind address (default: 0.0.0.0)")
     parser.add_argument("--port", type=int, default=8001, help="port (default: 8001)")
-    parser.add_argument(
-        "--device",
-        type=str,
-        default="auto",
-        help="auto, cuda, mps or cpu (default: auto)",
-    )
-    parser.add_argument(
-        "--model",
-        type=str,
-        default=None,
-        help=f"preset, Hugging Face repo or local path (default: {default_model})",
-    )
-    parser.add_argument(
-        "--model-id",
-        type=str,
-        default=None,
-        help=argparse.SUPPRESS,
-    )
+    parser.add_argument("--device", default="auto", help="auto, cuda, mps or cpu (default: auto)")
+    parser.add_argument("--model", default=default_model, help=f"preset, Hugging Face repo or local path (default: {default_model})")
     parsed = parser.parse_args(args)
-    chosen_model = parsed.model or parsed.model_id or default_model
-    parsed.model = chosen_model
-    parsed.model_id = resolve_model_id(chosen_model)
+    parsed.model_id = resolve_model_id(parsed.model)
     return parsed
 
 
@@ -151,8 +126,6 @@ if __name__ == "__main__":
     import uvicorn
 
     cli_args = parse_args()
-    if cli_args.device != "auto":
-        device, dtype = resolve_device_and_dtype(cli_args.device)
-    if cli_args.model_id:
-        MODEL_ID = cli_args.model_id
+    device, dtype = resolve_device_and_dtype(cli_args.device)
+    MODEL_ID = cli_args.model_id
     uvicorn.run(app, host=cli_args.host, port=cli_args.port)

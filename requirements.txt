@@ -1,23 +1,10 @@
-# System Prerequisites:
-# - ffmpeg (required for audio decoding / resampling)
-# - espeak-ng (required for German G2P phoneme conversion)
-# - C compiler + Python headers (fastdtw, pulled in by openpronounce, ships no wheels;
-#   e.g. `apt install build-essential python3-dev`)
-#
-# Optional / Future TTS Engine:
-# - Chatterbox Multilingual V3 (target engine for German reference audio generation)
-
 fastapi>=0.115.0
 uvicorn[standard]>=0.30.0
-torch>=2.4.0
-torchvision
-torchaudio
-transformers>=4.49.0
-accelerate>=0.34.0
-openpronounce>=0.3.0,<0.4  # pronounce_server.py parses the 0.3.x result format
-sounddevice>=0.5.0
-soundfile>=0.12.1
-requests>=2.32.0
 python-multipart>=0.0.12
+torch>=2.4.0
+transformers>=5.13.0  # first release with Qwen3-ASR
+openpronounce>=0.3.0,<0.4  # pronounce_server.py parses the 0.3.x result format
 numpy>=2.0  # 1.x has no wheels for Python 3.13+
-pytest>=8.0.0
+soundfile>=0.12.1
+sounddevice>=0.5.0
+requests>=2.32.0

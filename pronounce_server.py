@@ -11,12 +11,8 @@ from typing import Optional
 from fastapi import FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
+import openpronounce
 import torch
-
-try:
-    import openpronounce
-except ImportError:
-    openpronounce = None
 
 logger = logging.getLogger("pronounce_server")
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(name)s: %(message)s")
@@ -24,13 +20,11 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(na
 
 def resolve_device(device_name: str = "auto") -> str:
     """Pick a device ("auto" tries cuda, then mps, then cpu) and pass it to OpenPronounce."""
-    resolved = (
-        ("cuda" if torch.cuda.is_available() else ("mps" if torch.backends.mps.is_available() else "cpu"))
-        if device_name == "auto"
-        else device_name.lower().strip()
-    )
-    os.environ["OPENPRONOUNCE_DEVICE"] = resolved
-    return resolved
+    dev = device_name.lower().strip()
+    if dev == "auto":
+        dev = "cuda" if torch.cuda.is_available() else "mps" if torch.backends.mps.is_available() else "cpu"
+    os.environ["OPENPRONOUNCE_DEVICE"] = dev
+    return dev
 
 
 device = resolve_device()
@@ -71,27 +65,19 @@ async def assess(
     if not content:
         raise HTTPException(status_code=400, detail="Uploaded audio file is empty.")
 
-    if openpronounce is None:
-        raise HTTPException(
-            status_code=503,
-            detail="Pronunciation assessor is not initialized or model is still loading.",
-        )
-
-    suffix = Path(file.filename).suffix.lower() if file.filename else ".wav"
-    if suffix not in [".wav", ".ogg"]:
+    suffix = Path(file.filename or "").suffix.lower()
+    if suffix not in (".wav", ".ogg"):
         suffix = ".wav"
 
-    tmp = tempfile.NamedTemporaryFile(delete=False, suffix=suffix)
-    try:
+    # openpronounce reads from a path, so write the upload to a temporary file
+    with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp:
         tmp.write(content)
-        tmp.flush()
-        tmp.close()
-
+    try:
         raw_result = await asyncio.to_thread(
             lambda: openpronounce.compare_audio_with_text(
                 openpronounce.load_audio(tmp.name),
                 expected_text.strip(),
-                lang=lang.strip() if lang else "de",
+                lang=lang.strip() or "de",
             )
         )
 
@@ -115,8 +101,6 @@ async def assess(
             "phoneme_error_rate": float(differences.get("phoneme_error_rate") or 0.0),
             "errors": errors,
         }
-    except HTTPException:
-        raise
     except Exception as exc:
         logger.error("Pronunciation assessment error: %s", exc, exc_info=True)
         raise HTTPException(status_code=500, detail=f"Pronunciation assessment failed: {str(exc)}")
@@ -126,14 +110,9 @@ async def assess(
 
 def parse_args(args: Optional[list[str]] = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="PhonoScore pronunciation service (OpenPronounce)")
-    parser.add_argument("--host", type=str, default="0.0.0.0", help="bind address (default: 0.0.0.0)")
+    parser.add_argument("--host", default="0.0.0.0", help="bind address (default: 0.0.0.0)")
     parser.add_argument("--port", type=int, default=8002, help="port (default: 8002)")
-    parser.add_argument(
-        "--device",
-        type=str,
-        default="auto",
-        help="auto, cuda, mps or cpu (default: auto)",
-    )
+    parser.add_argument("--device", default="auto", help="auto, cuda, mps or cpu (default: auto)")
     return parser.parse_args(args)
 
 
@@ -141,6 +120,5 @@ if __name__ == "__main__":
     import uvicorn
 
     cli_args = parse_args()
-    if cli_args.device != "auto":
-        device = resolve_device(cli_args.device)
+    device = resolve_device(cli_args.device)
     uvicorn.run(app, host=cli_args.host, port=cli_args.port)

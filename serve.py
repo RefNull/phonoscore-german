@@ -20,28 +20,16 @@ import time
 from typing import Optional
 import urllib.request
 
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s [%(levelname)s] [serve]: %(message)s",
-)
+logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] [serve]: %(message)s")
 logger = logging.getLogger("serve")
 
-
-def get_default_pid_file() -> Path:
-    return Path(__file__).resolve().parent / ".serve.pid"
-
-
-def get_default_log_dir() -> Path:
-    return Path(__file__).resolve().parent / "logs"
+REPO_DIR = Path(__file__).resolve().parent
 
 
 def read_pid(pid_file: Path) -> Optional[int]:
-    if not pid_file.is_file():
-        return None
     try:
-        content = pid_file.read_text().strip()
-        return int(content) if content else None
-    except Exception:
+        return int(pid_file.read_text().strip())
+    except (OSError, ValueError):
         return None
 
 
@@ -57,211 +45,81 @@ def is_pid_running(pid: int) -> bool:
 
 def check_dependencies(python_exe: str) -> bool:
     """Return True if python_exe can import fastapi and uvicorn."""
-    cmd = [python_exe, "-c", "import fastapi; import uvicorn"]
     try:
-        res = subprocess.run(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=False)
-        return res.returncode == 0
-    except Exception:
+        return subprocess.run([python_exe, "-c", "import fastapi, uvicorn"], capture_output=True).returncode == 0
+    except OSError:
         return False
 
 
 def bootstrap_environment(repo_dir: Path) -> Optional[str]:
     """Create .venv and install requirements.txt if needed; return its python or None."""
-    venv_dir = repo_dir / ".venv"
-    venv_python = (
-        venv_dir / "Scripts" / "python.exe"
-        if sys.platform == "win32"
-        else venv_dir / "bin" / "python"
-    )
-
-    if not venv_python.exists():
-        logger.info("Creating virtual environment in %s", venv_dir)
-        try:
-            subprocess.run([sys.executable, "-m", "venv", str(venv_dir)], check=True)
-        except Exception as exc:
-            logger.error("Could not create virtual environment: %s", exc)
-            return None
-
-    requirements = repo_dir / "requirements.txt"
-    if requirements.exists() and not check_dependencies(str(venv_python)):
-        logger.info("Installing requirements.txt into .venv (takes a few minutes)")
-        try:
-            subprocess.run([str(venv_python), "-m", "pip", "install", "--upgrade", "pip"], check=False)
-            subprocess.run([str(venv_python), "-m", "pip", "install", "-r", str(requirements)], check=True)
-        except Exception as exc:
-            logger.error("pip install failed: %s", exc)
-            return None
-
-    if check_dependencies(str(venv_python)):
-        return str(venv_python)
-    return None
+    venv_python = repo_dir / ".venv" / "bin" / "python"
+    try:
+        if not venv_python.exists():
+            logger.info("Creating virtual environment in %s", venv_python.parent.parent)
+            subprocess.run([sys.executable, "-m", "venv", str(repo_dir / ".venv")], check=True)
+        if not check_dependencies(str(venv_python)):
+            logger.info("Installing requirements.txt into .venv (takes a few minutes)")
+            subprocess.run([str(venv_python), "-m", "pip", "install", "-r", str(repo_dir / "requirements.txt")], check=True)
+    except (OSError, subprocess.CalledProcessError) as exc:
+        logger.error("Setting up .venv failed: %s", exc)
+        return None
+    return str(venv_python) if check_dependencies(str(venv_python)) else None
 
 
 def resolve_python_executable(explicit_exe: Optional[str] = None, auto_setup: bool = True) -> str:
     """Choose the interpreter for the services.
 
-    Order: --python, the active virtualenv, ./.venv or ./venv, a freshly bootstrapped .venv
-    (if auto_setup), then sys.executable.
+    Order: --python, the active virtualenv, ./.venv, a freshly bootstrapped .venv (if auto_setup),
+    then sys.executable.
     """
     if explicit_exe:
         return explicit_exe
-
-    if sys.prefix != getattr(sys, "base_prefix", sys.prefix):
+    if sys.prefix != sys.base_prefix:
         return sys.executable
-
-    repo_dir = Path(__file__).resolve().parent
-    candidates = [
-        repo_dir / ".venv" / "bin" / "python",
-        repo_dir / ".venv" / "Scripts" / "python.exe",
-        repo_dir / "venv" / "bin" / "python",
-        repo_dir / "venv" / "Scripts" / "python.exe",
-    ]
-    for candidate in candidates:
-        if candidate.is_file() and os.access(candidate, os.X_OK):
-            return str(candidate)
-
+    venv_python = REPO_DIR / ".venv" / "bin" / "python"
+    if venv_python.is_file() and os.access(venv_python, os.X_OK):
+        return str(venv_python)
     if auto_setup:
-        bootstrapped = bootstrap_environment(repo_dir)
-        if bootstrapped:
-            return bootstrapped
-
+        return bootstrap_environment(REPO_DIR) or sys.executable
     return sys.executable
 
 
 def parse_args(args: Optional[list[str]] = None) -> argparse.Namespace:
     default_model = os.environ.get("PHONOSCORE_ASR_MODEL", "Qwen3-ASR-0.6B")
-
-    parser = argparse.ArgumentParser(
-        description="Run the PhonoScore ASR and pronunciation services together.",
-    )
-    parser.add_argument(
-        "--stop",
-        action="store_true",
-        default=False,
-        help="stop the background deployment",
-    )
-    parser.add_argument(
-        "--status",
-        action="store_true",
-        default=False,
-        help="show whether the services are up",
-    )
-    parser.add_argument(
-        "--logs",
-        "-f",
-        dest="logs",
-        action="store_true",
-        default=False,
-        help="follow the combined log",
-    )
-    parser.add_argument(
-        "--detach",
-        "-d",
-        dest="detach",
-        action="store_true",
-        default=False,
-        help="run in the background",
-    )
-
-    parser.add_argument(
-        "--host",
-        type=str,
-        default="0.0.0.0",
-        help="bind address (default: 0.0.0.0)",
-    )
-    parser.add_argument(
-        "--asr-port",
-        type=int,
-        default=8001,
-        help="ASR service port (default: 8001)",
-    )
-    parser.add_argument(
-        "--pronounce-port",
-        type=int,
-        default=8002,
-        help="pronunciation service and web UI port (default: 8002)",
-    )
+    parser = argparse.ArgumentParser(description="Run the PhonoScore ASR and pronunciation services together.")
+    parser.add_argument("--stop", action="store_true", help="stop the background deployment")
+    parser.add_argument("--status", action="store_true", help="show whether the services are up")
+    parser.add_argument("--logs", "-f", action="store_true", help="follow the combined log")
+    parser.add_argument("--detach", "-d", action="store_true", help="run in the background")
+    parser.add_argument("--host", default="0.0.0.0", help="bind address (default: 0.0.0.0)")
+    parser.add_argument("--asr-port", type=int, default=8001, help="ASR service port (default: 8001)")
+    parser.add_argument("--pronounce-port", type=int, default=8002, help="pronunciation service and web UI port (default: 8002)")
     parser.add_argument(
         "--model",
-        type=str,
         default=default_model,
         help=f"Qwen3-ASR-0.6B, Qwen3-ASR-1.7B, a Hugging Face repo or a local path (default: {default_model})",
     )
-    parser.add_argument(
-        "--device",
-        type=str,
-        default="auto",
-        help="auto, cuda, mps or cpu (default: auto)",
-    )
-    parser.add_argument(
-        "--python",
-        type=str,
-        default=None,
-        help="interpreter for the services (default: .venv, created if missing)",
-    )
-    parser.add_argument(
-        "--no-auto-setup",
-        action="store_true",
-        default=False,
-        help="do not create .venv or run pip install",
-    )
-    parser.add_argument(
-        "--log-dir",
-        type=str,
-        default=None,
-        help="log directory (default: ./logs)",
-    )
-    parser.add_argument(
-        "--pid-file",
-        type=str,
-        default=None,
-        help="PID file for --detach (default: ./.serve.pid)",
-    )
-    parser.add_argument(
-        "--internal-worker",
-        action="store_true",
-        default=False,
-        help=argparse.SUPPRESS,  # set by --detach on the background process
-    )
+    parser.add_argument("--device", default="auto", help="auto, cuda, mps or cpu (default: auto)")
+    parser.add_argument("--python", default=None, help="interpreter for the services (default: .venv, created if missing)")
+    parser.add_argument("--no-auto-setup", action="store_true", help="do not create .venv or run pip install")
+    parser.add_argument("--log-dir", type=Path, default=REPO_DIR / "logs", help="log directory (default: ./logs)")
+    parser.add_argument("--pid-file", type=Path, default=REPO_DIR / ".serve.pid", help="PID file for --detach (default: ./.serve.pid)")
+    parser.add_argument("--internal-worker", action="store_true", help=argparse.SUPPRESS)  # set by --detach
 
     parsed = parser.parse_args(args)
-    if not (parsed.stop or parsed.status or parsed.logs):
-        if parsed.asr_port == parsed.pronounce_port:
-            parser.error(f"--asr-port and --pronounce-port cannot be identical ({parsed.asr_port})")
-
+    if parsed.asr_port == parsed.pronounce_port and not (parsed.stop or parsed.status or parsed.logs):
+        parser.error(f"--asr-port and --pronounce-port cannot be identical ({parsed.asr_port})")
+    parsed.log_dir = parsed.log_dir.resolve()
+    parsed.pid_file = parsed.pid_file.resolve()
     return parsed
 
 
-def build_commands(
-    args: argparse.Namespace,
-    python_exe: Optional[str] = None,
-) -> tuple[list[str], list[str]]:
+def build_commands(args: argparse.Namespace, python_exe: Optional[str] = None) -> tuple[list[str], list[str]]:
     """Return the (asr, pronounce) command lines."""
     exe = python_exe or sys.executable
-    asr_cmd = [
-        exe,
-        "-u",
-        "asr_server.py",
-        "--host",
-        str(args.host),
-        "--port",
-        str(args.asr_port),
-        "--device",
-        str(args.device),
-        "--model",
-        str(args.model),
-    ]
-    pronounce_cmd = [
-        exe,
-        "-u",
-        "pronounce_server.py",
-        "--host",
-        str(args.host),
-        "--port",
-        str(args.pronounce_port),
-        "--device",
-        str(args.device),
-    ]
+    asr_cmd = [exe, "-u", "asr_server.py", "--host", args.host, "--port", str(args.asr_port), "--device", args.device, "--model", args.model]
+    pronounce_cmd = [exe, "-u", "pronounce_server.py", "--host", args.host, "--port", str(args.pronounce_port), "--device", args.device]
     return asr_cmd, pronounce_cmd
 
 
@@ -269,18 +127,14 @@ def terminate_process(proc: subprocess.Popen, name: str, timeout: float = 5.0) -
     """SIGTERM the process; SIGKILL it if it hasn't exited after timeout seconds."""
     if proc.poll() is not None:
         return
-
     logger.info("Stopping %s (PID %d)...", name, proc.pid)
+    proc.terminate()
     try:
-        proc.terminate()
         proc.wait(timeout=timeout)
-        logger.info("%s terminated gracefully.", name)
     except subprocess.TimeoutExpired:
         logger.warning("%s did not exit within %.1fs; sending SIGKILL.", name, timeout)
         proc.kill()
         proc.wait()
-    except Exception as exc:
-        logger.error("Error stopping %s: %s", name, exc)
 
 
 def handle_stop(pid_file: Path) -> int:
@@ -291,25 +145,13 @@ def handle_stop(pid_file: Path) -> int:
         return 0
 
     print(f"Stopping PhonoScore (PID {pid})...")
-    try:
-        os.kill(pid, signal.SIGTERM)
-    except ProcessLookupError:
-        pid_file.unlink(missing_ok=True)
-        print(f"Process {pid} has already exited.")
-        return 0
-
+    os.kill(pid, signal.SIGTERM)
     deadline = time.time() + 6.0
-    while time.time() < deadline:
-        if not is_pid_running(pid):
-            break
+    while is_pid_running(pid) and time.time() < deadline:
         time.sleep(0.2)
-
     if is_pid_running(pid):
-        print(f"Process {pid} did not terminate within timeout; sending SIGKILL...")
-        try:
-            os.kill(pid, signal.SIGKILL)
-        except ProcessLookupError:
-            pass
+        print(f"Process {pid} did not exit in time; sending SIGKILL.")
+        os.kill(pid, signal.SIGKILL)
 
     pid_file.unlink(missing_ok=True)
     print("Stopped.")
@@ -319,13 +161,10 @@ def handle_stop(pid_file: Path) -> int:
 def probe_health(url: str, timeout: float = 2.0) -> Optional[dict]:
     """GET a /health URL; return its JSON, or None if it isn't answering."""
     try:
-        req = urllib.request.Request(url, headers={"User-Agent": "serve-status"})
-        with urllib.request.urlopen(req, timeout=timeout) as resp:
-            if resp.status == 200:
-                return json.loads(resp.read().decode("utf-8"))
+        with urllib.request.urlopen(url, timeout=timeout) as resp:
+            return json.loads(resp.read())
     except Exception:
         return None
-    return None
 
 
 def local_url(host: str, port: int) -> str:
@@ -336,23 +175,20 @@ def local_url(host: str, port: int) -> str:
 def handle_status(pid_file: Path, host: str, asr_port: int, pronounce_port: int, log_dir: Path) -> int:
     pid = read_pid(pid_file)
     running = pid is not None and is_pid_running(pid)
-
-    asr_health = probe_health(f"{local_url(host, asr_port)}/health")
-    pronounce_health = probe_health(f"{local_url(host, pronounce_port)}/health")
+    asr = probe_health(f"{local_url(host, asr_port)}/health")
+    pronounce = probe_health(f"{local_url(host, pronounce_port)}/health")
+    down = "STARTING" if running else "STOPPED"
 
     print(f"Supervisor:  {f'RUNNING (PID {pid})' if running else 'NOT RUNNING'}")
-
-    if asr_health:
-        print(f"ASR:         UP on port {asr_port} (model: {asr_health.get('model', 'unknown')}, device: {asr_health.get('device', 'unknown')})")
+    if asr:
+        print(f"ASR:         UP on port {asr_port} (model: {asr.get('model', 'unknown')}, device: {asr.get('device', 'unknown')})")
     else:
-        print(f"ASR:         {'STARTING' if running else 'STOPPED'} (port {asr_port})")
-
-    if pronounce_health:
-        print(f"Pronounce:   UP on port {pronounce_port} (device: {pronounce_health.get('device', 'unknown')})")
+        print(f"ASR:         {down} (port {asr_port})")
+    if pronounce:
+        print(f"Pronounce:   UP on port {pronounce_port} (device: {pronounce.get('device', 'unknown')})")
         print(f"Web UI:      {local_url(host, pronounce_port)}")
     else:
-        print(f"Pronounce:   {'STARTING' if running else 'STOPPED'} (port {pronounce_port})")
-
+        print(f"Pronounce:   {down} (port {pronounce_port})")
     if log_dir.exists():
         print(f"Logs:        {log_dir}")
     return 0 if running else 1
@@ -361,68 +197,51 @@ def handle_status(pid_file: Path, host: str, asr_port: int, pronounce_port: int,
 def handle_logs(log_file: Path, follow: bool = False, lines_count: int = 50) -> int:
     """Print the last lines of log_file, then keep printing new lines if follow is set."""
     if not log_file.is_file():
-        print(f"Log file not found: {log_file}")
-        print("Start the deployment first with 'python serve.py'.")
+        print(f"No log at {log_file}. Start PhonoScore first with 'python serve.py'.")
         return 1
 
-    with open(log_file, "r", encoding="utf-8", errors="replace") as f:
-        all_lines = f.readlines()
-        tail = all_lines[-lines_count:] if len(all_lines) > lines_count else all_lines
-        for line in tail:
-            sys.stdout.write(line)
+    with open(log_file, encoding="utf-8", errors="replace") as f:
+        sys.stdout.writelines(f.readlines()[-lines_count:])
         sys.stdout.flush()
-
-        if follow:
-            try:
-                while True:
-                    line = f.readline()
-                    if line:
-                        sys.stdout.write(line)
-                        sys.stdout.flush()
-                    else:
-                        time.sleep(0.5)
-            except KeyboardInterrupt:
-                return 0
+        try:
+            while follow:
+                line = f.readline()
+                if line:
+                    sys.stdout.write(line)
+                    sys.stdout.flush()
+                else:
+                    time.sleep(0.5)
+        except KeyboardInterrupt:
+            pass
     return 0
 
 
 def spawn_detached(args: argparse.Namespace) -> int:
     """Start run_combined in a new background session and record its PID."""
-    pid_file = Path(args.pid_file).resolve() if args.pid_file else get_default_pid_file()
-    existing_pid = read_pid(pid_file)
+    existing_pid = read_pid(args.pid_file)
     if existing_pid and is_pid_running(existing_pid):
         print(f"PhonoScore is already running (PID {existing_pid}). Stop it with: python serve.py --stop")
         return 1
 
-    log_dir = Path(args.log_dir).resolve() if args.log_dir else get_default_log_dir()
-    log_dir.mkdir(parents=True, exist_ok=True)
-    serve_log = log_dir / "serve.log"
-
+    args.log_dir.mkdir(parents=True, exist_ok=True)
+    serve_log = args.log_dir / "serve.log"
     cmd = [
-        sys.executable,
-        str(Path(__file__).resolve()),
-        "--internal-worker",
-        "--host", str(args.host),
+        sys.executable, str(REPO_DIR / "serve.py"), "--internal-worker",
+        "--host", args.host,
         "--asr-port", str(args.asr_port),
         "--pronounce-port", str(args.pronounce_port),
-        "--model", str(args.model),
-        "--device", str(args.device),
-        "--log-dir", str(log_dir),
-        "--pid-file", str(pid_file),
+        "--model", args.model,
+        "--device", args.device,
+        "--log-dir", str(args.log_dir),
+        "--pid-file", str(args.pid_file),
     ]
     if args.python:
-        cmd.extend(["--python", args.python])
+        cmd += ["--python", args.python]
     if args.no_auto_setup:
         cmd.append("--no-auto-setup")
 
-    out_file = open(serve_log, "a", buffering=1, encoding="utf-8")
-    proc = subprocess.Popen(
-        cmd,
-        stdin=subprocess.DEVNULL,
-        stdout=out_file,
-        stderr=subprocess.STDOUT,
-        start_new_session=True,
-    )
+    with open(serve_log, "a", encoding="utf-8") as out:
+        proc = subprocess.Popen(cmd, stdin=subprocess.DEVNULL, stdout=out, stderr=subprocess.STDOUT, start_new_session=True)
 
     time.sleep(0.6)
     ret = proc.poll()
@@ -430,7 +249,7 @@ def spawn_detached(args: argparse.Namespace) -> int:
         print(f"Failed to start (exit code {ret}). See {serve_log}")
         return ret
 
-    pid_file.write_text(str(proc.pid))
+    args.pid_file.write_text(str(proc.pid))
     print(f"PhonoScore started in the background (PID {proc.pid}).")
     print(f"  Web UI:  {local_url(args.host, args.pronounce_port)} (once --status shows UP)")
     print(f"  Logs:    {serve_log}")
@@ -441,9 +260,7 @@ def spawn_detached(args: argparse.Namespace) -> int:
 
 def run_combined(args: argparse.Namespace, poll_interval: float = 0.5) -> int:
     """Run both services until interrupted; if one exits, stop the other and return its code."""
-    auto_setup = not getattr(args, "no_auto_setup", False)
-    python_exe = resolve_python_executable(getattr(args, "python", None), auto_setup=auto_setup)
-
+    python_exe = resolve_python_executable(args.python, auto_setup=not args.no_auto_setup)
     if not check_dependencies(python_exe):
         logger.error(
             "%s cannot import fastapi/uvicorn. Run without --no-auto-setup, or install manually:\n"
@@ -452,143 +269,75 @@ def run_combined(args: argparse.Namespace, poll_interval: float = 0.5) -> int:
         )
         return 1
 
-    log_dir = Path(args.log_dir).resolve() if args.log_dir else get_default_log_dir()
-    log_dir.mkdir(parents=True, exist_ok=True)
-
-    pid_file = Path(args.pid_file).resolve() if args.pid_file else get_default_pid_file()
-    if getattr(args, "internal_worker", False):
-        pid_file.write_text(str(os.getpid()))
-
-    asr_log_path = log_dir / "asr.log"
-    pronounce_log_path = log_dir / "pronounce.log"
-    serve_log_path = log_dir / "serve.log"
-
-    asr_log_f = open(asr_log_path, "a", buffering=1, encoding="utf-8")
-    pronounce_log_f = open(pronounce_log_path, "a", buffering=1, encoding="utf-8")
-    serve_log_f = open(serve_log_path, "a", buffering=1, encoding="utf-8")
-
-    asr_cmd, pronounce_cmd = build_commands(args, python_exe=python_exe)
-
+    args.log_dir.mkdir(parents=True, exist_ok=True)
     logger.info("Starting PhonoScore (python: %s)", python_exe)
     logger.info("  ASR:        port %d (model: %s, device: %s)", args.asr_port, args.model, args.device)
     logger.info("  Pronounce:  port %d (device: %s)", args.pronounce_port, args.device)
-    logger.info("  Logs:       %s", log_dir)
+    logger.info("  Logs:       %s", args.log_dir)
 
-    child_env = os.environ.copy()
-    child_env["PYTHONUNBUFFERED"] = "1"
+    # In --detach mode stdout already is serve.log, so only write it explicitly in the foreground
+    serve_log = None if args.internal_worker else open(args.log_dir / "serve.log", "a", buffering=1, encoding="utf-8")
+    env = {**os.environ, "PYTHONUNBUFFERED": "1"}
+    services = []  # (name, process, log file)
+    for name, cmd in zip(("asr", "pronounce"), build_commands(args, python_exe)):
+        log = open(args.log_dir / f"{name}.log", "a", buffering=1, encoding="utf-8")
+        proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, bufsize=1, env=env, cwd=REPO_DIR)
+        threading.Thread(target=forward_output, args=(proc.stdout, name, log, serve_log), daemon=True).start()
+        services.append((name, proc, log))
 
-    asr_proc = subprocess.Popen(
-        asr_cmd,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.STDOUT,
-        text=True,
-        bufsize=1,
-        env=child_env,
-    )
-    pronounce_proc = subprocess.Popen(
-        pronounce_cmd,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.STDOUT,
-        text=True,
-        bufsize=1,
-        env=child_env,
-    )
+    def stop_on_signal(signum, _frame):
+        logger.info("Received %s, stopping services...", signal.Signals(signum).name)
+        raise KeyboardInterrupt
 
-    def stream_forwarder(pipe, prefix: str, dedicated_log, unified_log):
-        try:
-            for line in iter(pipe.readline, ""):
-                if not line:
-                    break
-                dedicated_log.write(line)
-                unified_line = f"{prefix} {line}"
-                unified_log.write(unified_line)
-                sys.stdout.write(unified_line)
-                sys.stdout.flush()
-        except Exception:
-            pass
-        finally:
-            pipe.close()
+    signal.signal(signal.SIGINT, stop_on_signal)
+    signal.signal(signal.SIGTERM, stop_on_signal)
 
-    t_asr = threading.Thread(
-        target=stream_forwarder,
-        args=(asr_proc.stdout, "[asr]", asr_log_f, serve_log_f),
-        daemon=True,
-    )
-    t_pronounce = threading.Thread(
-        target=stream_forwarder,
-        args=(pronounce_proc.stdout, "[pronounce]", pronounce_log_f, serve_log_f),
-        daemon=True,
-    )
-    t_asr.start()
-    t_pronounce.start()
-
-    procs = [("ASR Service", asr_proc), ("Pronounce Service", pronounce_proc)]
-    shutdown_initiated = False
-
-    def handle_signal(signum, _frame):
-        nonlocal shutdown_initiated
-        if shutdown_initiated:
-            return
-        shutdown_initiated = True
-        sig_name = signal.Signals(signum).name
-        logger.info("Received %s, stopping services...", sig_name)
-        for name, proc in procs:
-            terminate_process(proc, name)
-        asr_log_f.close()
-        pronounce_log_f.close()
-        serve_log_f.close()
-        if getattr(args, "internal_worker", False):
-            pid_file.unlink(missing_ok=True)
-        sys.exit(0)
-
-    signal.signal(signal.SIGINT, handle_signal)
-    signal.signal(signal.SIGTERM, handle_signal)
-
-    web_url = local_url(args.host, args.pronounce_port)
     health_urls = [f"{local_url(args.host, port)}/health" for port in (args.asr_port, args.pronounce_port)]
     ready = False
-
+    exit_code = 0
     try:
         while True:
             if not ready and all(probe_health(url, timeout=0.5) for url in health_urls):
                 ready = True
-                logger.info("Ready. Open %s in your browser.", web_url)
-            for name, proc in procs:
-                ret = proc.poll()
-                if ret is not None:
-                    logger.error("%s exited unexpectedly with code %d", name, ret)
-                    for sibling_name, sibling_proc in procs:
-                        if sibling_proc is not proc:
-                            terminate_process(sibling_proc, sibling_name)
-                    asr_log_f.close()
-                    pronounce_log_f.close()
-                    serve_log_f.close()
-                    if getattr(args, "internal_worker", False):
-                        pid_file.unlink(missing_ok=True)
-                    return ret
+                logger.info("Ready. Open %s in your browser.", local_url(args.host, args.pronounce_port))
+            exited = [(name, code) for name, proc, _ in services if (code := proc.poll()) is not None]
+            if exited:
+                name, exit_code = exited[0]
+                logger.error("%s service exited unexpectedly with code %d", name, exit_code)
+                break
             time.sleep(poll_interval)
     except KeyboardInterrupt:
-        handle_signal(signal.SIGINT, None)
-        return 0
+        pass
+    finally:
+        for name, proc, log in services:
+            terminate_process(proc, f"{name} service")
+            log.close()
+        if serve_log:
+            serve_log.close()
+        if args.internal_worker:
+            args.pid_file.unlink(missing_ok=True)
+    return exit_code
+
+
+def forward_output(pipe, name: str, service_log, serve_log) -> None:
+    """Copy a service's output to its own log, and with a [name] prefix to stdout and serve.log."""
+    for line in pipe:
+        service_log.write(line)
+        for out in filter(None, (sys.stdout, serve_log)):
+            out.write(f"[{name}] {line}")
+            out.flush()
 
 
 def main(args: Optional[list[str]] = None) -> int:
     cli_args = parse_args(args)
-    pid_file = Path(cli_args.pid_file).resolve() if cli_args.pid_file else get_default_pid_file()
-    log_dir = Path(cli_args.log_dir).resolve() if cli_args.log_dir else get_default_log_dir()
-
     if cli_args.stop:
-        return handle_stop(pid_file)
-
+        return handle_stop(cli_args.pid_file)
     if cli_args.status:
-        return handle_status(pid_file, cli_args.host, cli_args.asr_port, cli_args.pronounce_port, log_dir)
-
+        return handle_status(cli_args.pid_file, cli_args.host, cli_args.asr_port, cli_args.pronounce_port, cli_args.log_dir)
     if cli_args.logs:
-        return handle_logs(log_dir / "serve.log", follow=True)
-
+        return handle_logs(cli_args.log_dir / "serve.log", follow=True)
     if cli_args.detach and not cli_args.internal_worker:
         return spawn_detached(cli_args)
-
     return run_combined(cli_args)
 
 

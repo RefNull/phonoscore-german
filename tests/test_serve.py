@@ -1,8 +1,7 @@
-"""Tests for the combined local deployment runner (serve.py)."""
+"""Tests for serve.py."""
 
 from __future__ import annotations
 
-import argparse
 import os
 from pathlib import Path
 import signal
@@ -21,8 +20,6 @@ from serve import (
     bootstrap_environment,
     build_commands,
     check_dependencies,
-    get_default_log_dir,
-    get_default_pid_file,
     handle_logs,
     handle_status,
     handle_stop,
@@ -182,7 +179,8 @@ def test_run_combined_logs_ready_once(mock_signal, mock_popen, mock_check_deps, 
     pronounce_proc = MagicMock(pid=202)
     asr_proc.poll.return_value = None
     # Keep running for a few polls, then exit so run_combined returns
-    pronounce_proc.poll.side_effect = [None, None, None, None, 3]
+    polls = iter([None, None, None, None])
+    pronounce_proc.poll.side_effect = lambda: next(polls, 3)
     mock_popen.side_effect = [asr_proc, pronounce_proc]
     health = [None, {"status": "ok"}, {"status": "ok"}, {"status": "ok"}, {"status": "ok"}]
 
@@ -221,7 +219,7 @@ def test_resolve_python_executable_auto_detect(tmp_path, monkeypatch):
 
     monkeypatch.setattr(sys, "prefix", "/usr")
     monkeypatch.setattr(sys, "base_prefix", "/usr")
-    monkeypatch.setattr("serve.Path", lambda p: tmp_path / "serve.py")
+    monkeypatch.setattr("serve.REPO_DIR", tmp_path)
 
     resolved = resolve_python_executable()
     assert resolved == str(fake_venv_python)
@@ -263,8 +261,8 @@ def test_parse_args_lifecycle_actions():
     assert args_no_auto.no_auto_setup is True
 
     args_custom_paths = parse_args(["--log-dir", "/tmp/test-logs", "--pid-file", "/tmp/test.pid"])
-    assert args_custom_paths.log_dir == "/tmp/test-logs"
-    assert args_custom_paths.pid_file == "/tmp/test.pid"
+    assert args_custom_paths.log_dir == Path("/tmp/test-logs")
+    assert args_custom_paths.pid_file == Path("/tmp/test.pid")
 
     # Action flags bypass port collision check
     args_same_port = parse_args(["--status", "--asr-port", "8080", "--pronounce-port", "8080"])
@@ -448,11 +446,7 @@ def test_bootstrap_environment(tmp_path):
     repo_dir.mkdir()
     (repo_dir / "requirements.txt").write_text("fastapi\n")
 
-    venv_python = (
-        repo_dir / ".venv" / "Scripts" / "python.exe"
-        if sys.platform == "win32"
-        else repo_dir / ".venv" / "bin" / "python"
-    )
+    venv_python = repo_dir / ".venv" / "bin" / "python"
 
     def fake_subprocess_run(cmd, *args, **kwargs):
         if "-m" in cmd and "venv" in cmd:

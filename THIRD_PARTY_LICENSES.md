@@ -10,16 +10,14 @@ PhonoScore German is licensed under the [MIT License](LICENSE). It depends on th
 | :--- | :--- | :--- |
 | **fastapi** | MIT | Copyright (c) 2018 Sebastián Ramírez |
 | **uvicorn** | BSD-3-Clause | Copyright (c) 2017-present, Encode OSS Ltd. |
-| **torch**, **torchvision**, **torchaudio** | BSD-3-Clause | Copyright (c) 2016-present, Meta Platforms, Inc. and affiliates. |
+| **torch** | BSD-3-Clause | Copyright (c) 2016-present, Meta Platforms, Inc. and affiliates. |
 | **transformers** | Apache-2.0 | Copyright 2018-The Hugging Face team. |
-| **accelerate** | Apache-2.0 | Copyright 2021 The HuggingFace Team. |
 | **openpronounce** | MIT | Copyright (c) 2024 Jean-François Lépine |
 | **sounddevice** | MIT | Copyright (c) 2015-2024 Matthias Geier (underlying PortAudio under PortAudio license) |
 | **soundfile** | BSD-3-Clause | Copyright (c) 2013-2024 Bastian Bechtold |
 | **requests** | Apache-2.0 | Copyright 2019 Kenneth Reitz |
 | **python-multipart** | Apache-2.0 | Copyright 2014 Andrew Dunai, Marcelo Trylesinski |
 | **numpy** | BSD-3-Clause | Copyright (c) 2005-2024, NumPy Developers |
-| **pytest** | MIT | Copyright (c) 2004-2024 Holger Krekel and others |
 
 ---
 

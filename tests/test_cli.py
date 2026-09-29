@@ -1,6 +1,4 @@
-"""
-Unit and integration tests for German speech assessment CLI client (cli.py).
-"""
+"""Tests for cli.py."""
 
 import io
 from pathlib import Path
@@ -189,7 +187,7 @@ def test_main_pre_recorded_audio_without_sounddevice(tmp_path):
 
 
 # ---------------------------------------------------------------------------
-# Step 1: Fluency / ASR Service Tests
+# ASR requests
 # ---------------------------------------------------------------------------
 
 def test_query_asr_routed_success():
@@ -270,7 +268,7 @@ def test_query_asr_http_error():
 
 
 # ---------------------------------------------------------------------------
-# Step 2: Phonetic Assessment Service Tests
+# Scoring requests
 # ---------------------------------------------------------------------------
 
 def test_query_pronounce_routed_success():

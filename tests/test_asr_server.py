@@ -1,9 +1,8 @@
 """
-Unit and integration tests for Qwen3-ASR FastAPI microservice (asr_server.py).
+Tests for asr_server.py.
 """
 
 import io
-import os
 from pathlib import Path
 import sys
 import wave
@@ -18,13 +17,9 @@ import pytest
 from fastapi.testclient import TestClient
 import torch
 
-# Ensure model downloading is disabled during test suite execution
-os.environ["SKIP_MODEL_LOAD"] = "1"
-
 from asr_server import (
     MODEL_ID,
     app,
-    get_transcriber,
     parse_args,
     resolve_device_and_dtype,
     resolve_model_id,
@@ -124,13 +119,15 @@ def test_transcription_missing_file(client):
     assert response.status_code == 422
 
 
-def test_transcription_pipeline_not_initialized(client, monkeypatch):
-    """Calling transcription when the model is not loaded should return 503 Service Unavailable."""
-    monkeypatch.setattr("asr_server.get_transcriber", lambda: None)
+def test_transcription_model_load_failure(client, monkeypatch):
+    """A model that fails to load should return 500 with the reason."""
+    def fail():
+        raise OSError("model not found")
+    monkeypatch.setattr("asr_server.get_transcriber", fail)
     files = {"file": ("test.wav", make_synthetic_wav(), "audio/wav")}
     response = client.post("/v1/audio/transcriptions", files=files)
-    assert response.status_code == 503
-    assert "not initialized" in response.json()["detail"].lower()
+    assert response.status_code == 500
+    assert "model not found" in response.json()["detail"]
 
 
 def test_transcription_pipeline_failure(client, monkeypatch, synthetic_wav_bytes):
@@ -203,7 +200,7 @@ def test_parse_args(monkeypatch):
         "--host", "127.0.0.1",
         "--port", "8081",
         "--device", "cuda",
-        "--model-id", "custom-org/custom-model",
+        "--model", "custom-org/custom-model",
     ])
     assert custom.host == "127.0.0.1"
     assert custom.port == 8081

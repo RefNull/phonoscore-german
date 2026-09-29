@@ -1,75 +1,21 @@
-# Python
 __pycache__/
 *.py[cod]
-*$py.class
-*.so
-.Python
-build/
-develop-eggs/
-dist/
-downloads/
-eggs/
-.eggs/
-lib/
-lib64/
-parts/
-sdist/
-var/
-wheels/
-*.egg-info/
-.installed.cfg
-*.egg
-
-# Virtual Environments
 .venv/
-venv/
-ENV/
-env/
-
-# Testing
 .pytest_cache/
-.coverage
-htmlcov/
-.tox/
-.nox/
 
-# IDEs & OS
-.idea/
-.vscode/
-*.swp
-*.swo
-.DS_Store
-Thumbs.db
+# serve.py runtime files
+logs/
+.serve.pid
 
-# Audio & Temporary files
+# Recordings and model weights
 *.wav
 *.ogg
 *.mp3
 *.flac
-*.tmp
-tmp/
-temp/
-
-# Model weights
-*.bin
 *.safetensors
+*.bin
 *.pt
-*.pth
 
-# Agent & Harness files
-AGENTS.md
-agent.md
-CLAUDE.md
-claude.md
-PROMPT.md
-prompt.md
-agents/
-state.md
-decisions.md
-
-# Runtime logs & PID files
-logs/
-*.log
-*.pid
-.serve.pid
-
+.DS_Store
+.idea/
+.vscode/
